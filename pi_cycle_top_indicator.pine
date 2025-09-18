@@ -1,0 +1,174 @@
+//@version=5
+indicator("Pi Cycle Top Indicator", "Pi Cycle", overlay=true, max_bars_back=500)
+
+// ============================================================================
+// PI CYCLE TOP INDICATOR - STANDALONE VERSION
+// ============================================================================
+// The Pi Cycle Top Indicator has historically been effective at picking the 
+// exact day of Bitcoin market cycle highs. It uses the 111-day moving average 
+// and a multiple of the 350-day moving average (111DMA vs 350DMA x 2).
+// 
+// When the 111DMA crosses above the 350DMA x 2, it has historically indicated
+// the market top within 3 days.
+// ============================================================================
+
+// INPUT PARAMETERS
+ma_111_length = input.int(111, "111-Day Moving Average", minval=1, maxval=500)
+ma_350_length = input.int(350, "350-Day Moving Average", minval=1, maxval=1000)
+multiplier = input.float(2.0, "350-Day MA Multiplier", minval=1.0, maxval=5.0, step=0.1)
+
+show_mas = input.bool(true, "Show Moving Averages", group="Display")
+show_signals = input.bool(true, "Show Cross Signals", group="Display")
+show_background = input.bool(true, "Show Background Colors", group="Display")
+show_labels = input.bool(true, "Show Labels", group="Display")
+
+// Alert Settings
+enable_alerts = input.bool(true, "Enable Alerts", group="Alerts")
+alert_before_cross = input.int(5, "Alert Days Before Cross", minval=1, maxval=20, group="Alerts")
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+
+// Calculate moving averages
+ma_111 = ta.sma(close, ma_111_length)
+ma_350_x_multiplier = ta.sma(close, ma_350_length) * multiplier
+
+// Cross detection
+cross_above = ta.crossover(ma_111, ma_350_x_multiplier)
+cross_below = ta.crossunder(ma_111, ma_350_x_multiplier)
+
+// Distance calculation for early warning
+distance_pct = ma_350_x_multiplier > 0 ? (ma_350_x_multiplier - ma_111) / ma_350_x_multiplier * 100 : 0
+approaching_cross = distance_pct < 5 and distance_pct > 0 and ma_111 < ma_350_x_multiplier
+
+// Signal strength (0-100, higher = more bearish)
+signal_strength = 0.0
+if ma_111 >= ma_350_x_multiplier
+    // Above the line - top signal active
+    excess_pct = (ma_111 - ma_350_x_multiplier) / ma_350_x_multiplier * 100
+    signal_strength := 85 + math.min(15, excess_pct * 3)
+else
+    // Below the line - calculate proximity
+    proximity = math.max(0, 100 - distance_pct * 10)
+    signal_strength := proximity * 0.8
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// Plot moving averages
+plot(show_mas ? ma_111 : na, "111-Day MA", color.blue, 2)
+plot(show_mas ? ma_350_x_multiplier : na, "350-Day MA x " + str.tostring(multiplier), color.red, 2)
+
+// Plot price for reference
+plot(close, "Price", color.white, 1)
+
+// Background coloring
+bgcolor(show_background and ma_111 > ma_350_x_multiplier ? color.new(color.red, 85) : 
+        show_background and approaching_cross ? color.new(color.orange, 90) : na)
+
+// Cross signals
+plotshape(show_signals and cross_above, "Top Signal", shape.triangledown, location.abovebar, 
+          color.red, size=size.large)
+plotshape(show_signals and cross_below, "Reset Signal", shape.triangleup, location.belowbar, 
+          color.green, size=size.normal)
+
+// Warning signals for approaching cross
+plotshape(show_signals and approaching_cross and not approaching_cross[1], "Warning", 
+          shape.diamond, location.abovebar, color.orange, size=size.small)
+
+// ============================================================================
+// LABELS AND INFO
+// ============================================================================
+
+if show_labels and barstate.islast
+    // Create info table
+    var table info_table = table.new(position.top_right, 2, 6, bgcolor=color.white, border_width=1)
+    
+    table.cell(info_table, 0, 0, "Pi Cycle Top", text_color=color.white, bgcolor=color.blue)
+    table.cell(info_table, 1, 0, "Status", text_color=color.white, bgcolor=color.blue)
+    
+    // Current status
+    current_status = ""
+    status_color = color.gray
+    
+    if ma_111 > ma_350_x_multiplier
+        current_status := "🚨 TOP SIGNAL"
+        status_color := color.red
+    else if approaching_cross
+        current_status := "⚠️ WARNING"
+        status_color := color.orange
+    else if distance_pct > 20
+        current_status := "✅ SAFE"
+        status_color := color.green
+    else
+        current_status := "📊 MONITOR"
+        status_color := color.gray
+    
+    table.cell(info_table, 0, 1, "Status:", text_color=color.black)
+    table.cell(info_table, 1, 1, current_status, text_color=color.white, bgcolor=status_color)
+    
+    // Signal strength
+    table.cell(info_table, 0, 2, "Signal:", text_color=color.black)
+    table.cell(info_table, 1, 2, str.tostring(math.round(signal_strength, 1)) + "/100", text_color=color.black)
+    
+    // Distance
+    table.cell(info_table, 0, 3, "Distance:", text_color=color.black)
+    table.cell(info_table, 1, 3, str.tostring(math.round(distance_pct, 2)) + "%", text_color=color.black)
+    
+    // 111 MA value
+    table.cell(info_table, 0, 4, "111 MA:", text_color=color.black)
+    table.cell(info_table, 1, 4, str.tostring(math.round(ma_111, 2)), text_color=color.black)
+    
+    // 350 MA x multiplier value
+    table.cell(info_table, 0, 5, "350 MA x" + str.tostring(multiplier) + ":", text_color=color.black)
+    table.cell(info_table, 1, 5, str.tostring(math.round(ma_350_x_multiplier, 2)), text_color=color.black)
+
+// Labels for significant events
+if show_labels and cross_above
+    label.new(bar_index, high * 1.02, "🚨 PI CYCLE TOP\n" + str.tostring(close, "#,###"), 
+              color=color.red, textcolor=color.white, style=label.style_label_down, size=size.large)
+
+if show_labels and cross_below
+    label.new(bar_index, low * 0.98, "✅ PI CYCLE RESET\n" + str.tostring(close, "#,###"), 
+              color=color.green, textcolor=color.white, style=label.style_label_up, size=size.normal)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+if enable_alerts
+    // Top signal alert
+    if cross_above
+        alert("🚨 PI CYCLE TOP SIGNAL! 111MA crossed above 350MA x " + str.tostring(multiplier) + 
+              " at price: $" + str.tostring(close, "#,###") + 
+              ". Historically indicates market top within 3 days!", alert.freq_once_per_bar)
+    
+    // Warning alert
+    if approaching_cross and not approaching_cross[1]
+        alert("⚠️ PI CYCLE WARNING! 111MA approaching 350MA x " + str.tostring(multiplier) + 
+              ". Distance: " + str.tostring(distance_pct, "#.##") + "%. Monitor closely!", alert.freq_once_per_bar)
+    
+    // Reset alert
+    if cross_below
+        alert("✅ PI CYCLE RESET! 111MA crossed below 350MA x " + str.tostring(multiplier) + 
+              " at price: $" + str.tostring(close, "#,###") + ". Top signal deactivated.", alert.freq_once_per_bar)
+
+// ============================================================================
+// HISTORICAL ACCURACY DISPLAY
+// ============================================================================
+
+if show_labels and barstate.islast
+    // Add historical note
+    var table history_table = table.new(position.bottom_right, 1, 4, bgcolor=color.new(color.blue, 80), border_width=1)
+    
+    table.cell(history_table, 0, 0, "Pi Cycle Top History", text_color=color.white, bgcolor=color.blue)
+    table.cell(history_table, 0, 1, "✓ April 2021: $64,804", text_color=color.white)
+    table.cell(history_table, 0, 2, "✓ December 2017: $19,891", text_color=color.white)  
+    table.cell(history_table, 0, 3, "✓ November 2013: $1,163", text_color=color.white)
+
+// ============================================================================
+// END OF PI CYCLE TOP INDICATOR
+// ============================================================================
+

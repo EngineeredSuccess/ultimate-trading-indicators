@@ -1,0 +1,373 @@
+//@version=5
+indicator("Trading Parrot Multi-Source Analysis", "TP-MSA", overlay=false, max_bars_back=1000)
+
+// ============================================================================
+// TRADING PARROT MULTI-SOURCE ANALYSIS INDICATOR
+// ============================================================================
+// Based on The Trading Parrot's methodology combining:
+// 1. SOPR Analysis (Spent Output Profit Ratio)
+// 2. Custom RSI Variants
+// 3. Liquidity Level Analysis
+// 4. Chart Pattern Recognition
+// 5. Volume Analysis
+// 6. Risk-First Approach
+// ============================================================================
+
+// INPUT PARAMETERS
+// ============================================================================
+
+// SOPR Settings (Simplified for Pine Script)
+sopr_enabled = input.bool(true, "Enable SOPR Analysis", group="SOPR")
+sopr_length = input.int(100, "SOPR Calculation Length", minval=20, maxval=500, group="SOPR")
+sopr_ma_length = input.int(7, "SOPR Moving Average", minval=1, maxval=50, group="SOPR")
+
+// RSI Settings
+rsi_enabled = input.bool(true, "Enable Custom RSI", group="RSI")
+rsi_length = input.int(14, "RSI Length", minval=2, maxval=100, group="RSI")
+rsi_volume_weight = input.bool(true, "Volume-Weighted RSI", group="RSI")
+rsi_overbought = input.float(70, "RSI Overbought", minval=50, maxval=90, group="RSI")
+rsi_oversold = input.float(30, "RSI Oversold", minval=10, maxval=50, group="RSI")
+
+// Liquidity Analysis
+liquidity_enabled = input.bool(true, "Enable Liquidity Analysis", group="Liquidity")
+liquidity_lookback = input.int(100, "Liquidity Lookback Period", minval=20, maxval=500, group="Liquidity")
+support_resistance_strength = input.int(3, "S/R Touch Minimum", minval=2, maxval=10, group="Liquidity")
+
+// Volume Analysis
+volume_enabled = input.bool(true, "Enable Volume Analysis", group="Volume")
+volume_ma_length = input.int(20, "Volume MA Length", minval=5, maxval=100, group="Volume")
+volume_spike_threshold = input.float(2.0, "Volume Spike Threshold", minval=1.1, maxval=5.0, step=0.1, group="Volume")
+
+// Pattern Recognition
+pattern_enabled = input.bool(true, "Enable Pattern Recognition", group="Patterns")
+pattern_lookback = input.int(50, "Pattern Lookback", minval=20, maxval=200, group="Patterns")
+
+// Display Settings
+show_individual = input.bool(true, "Show Individual Components", group="Display")
+show_integrated = input.bool(true, "Show Integrated Signal", group="Display")
+show_table = input.bool(true, "Show Analysis Table", group="Display")
+
+// ============================================================================
+// SOPR ANALYSIS (SIMPLIFIED)
+// ============================================================================
+
+calculate_sopr_signal() =>
+    var float signal = 50.0
+    
+    if sopr_enabled
+        // SOPR proxy: Price vs long-term moving average
+        // This approximates profit/loss behavior of market participants
+        long_ma = ta.sma(close, sopr_length)
+        sopr_proxy = close / long_ma
+        sopr_ma = ta.sma(sopr_proxy, sopr_ma_length)
+        
+        // SOPR interpretation
+        // > 1.15: Heavy profit taking (bearish)
+        // 1.05-1.15: Moderate profit taking
+        // 0.95-1.05: Neutral zone
+        // < 0.95: Loss taking/capitulation (bullish)
+        
+        if sopr_proxy > 1.15
+            signal := 85 + math.min(15, (sopr_proxy - 1.15) * 100)
+        else if sopr_proxy > 1.05
+            signal := 65 + ((sopr_proxy - 1.05) / 0.10) * 20
+        else if sopr_proxy > 0.95
+            signal := 45 + ((sopr_proxy - 0.95) / 0.10) * 20
+        else
+            signal := 25 - math.min(25, (0.95 - sopr_proxy) * 100)
+    
+    signal
+
+// ============================================================================
+// CUSTOM RSI ANALYSIS
+// ============================================================================
+
+calculate_rsi_signal() =>
+    var float signal = 50.0
+    
+    if rsi_enabled
+        // Standard RSI
+        rsi_standard = ta.rsi(close, rsi_length)
+        
+        // Volume-weighted RSI (Trading Parrot style)
+        rsi_volume_weighted_val = 50.0
+        if rsi_volume_weight and volume > 0
+            volume_price = close * volume
+            rsi_volume_weighted_val := ta.rsi(volume_price, rsi_length)
+        
+        // Combine RSI signals
+        rsi_combined = rsi_volume_weight ? (rsi_standard + rsi_volume_weighted_val) / 2 : rsi_standard
+        
+        // Convert RSI to signal (invert: lower RSI = more bullish signal)
+        if rsi_combined > rsi_overbought
+            signal := 80 + ((rsi_combined - rsi_overbought) / (100 - rsi_overbought)) * 20
+        else if rsi_combined < rsi_oversold
+            signal := 20 - ((rsi_oversold - rsi_combined) / rsi_oversold) * 20
+        else
+            // Normalize middle range
+            middle_range = rsi_overbought - rsi_oversold
+            position_in_range = (rsi_combined - rsi_oversold) / middle_range
+            signal := 20 + (position_in_range * 60)
+    
+    signal
+
+// ============================================================================
+// LIQUIDITY ANALYSIS
+// ============================================================================
+
+calculate_liquidity_signal() =>
+    var float signal = 50.0
+    
+    if liquidity_enabled
+        // Find significant support and resistance levels
+        highest_recent = ta.highest(high, liquidity_lookback)
+        lowest_recent = ta.lowest(low, liquidity_lookback)
+        
+        // Current price position in range
+        price_position = (close - lowest_recent) / (highest_recent - lowest_recent)
+        
+        // Volume at key levels (simplified)
+        volume_ma = ta.sma(volume, volume_ma_length)
+        current_volume_strength = volume / volume_ma
+        
+        // Resistance/Support proximity analysis
+        resistance_distance = (highest_recent - close) / close
+        support_distance = (close - lowest_recent) / close
+        
+        // Signal calculation based on position and volume
+        if price_position > 0.8 and current_volume_strength > 1.5
+            // Near resistance with high volume - potential rejection
+            signal := 70 + (price_position - 0.8) * 150
+        else if price_position < 0.2 and current_volume_strength > 1.5
+            // Near support with high volume - potential bounce
+            signal := 30 - (0.2 - price_position) * 150
+        else
+            // Middle range - use price position
+            signal := price_position * 100
+    
+    signal
+
+// ============================================================================
+// VOLUME ANALYSIS
+// ============================================================================
+
+calculate_volume_signal() =>
+    var float signal = 50.0
+    
+    if volume_enabled
+        volume_ma = ta.sma(volume, volume_ma_length)
+        volume_ratio = volume / volume_ma
+        
+        // Price-volume relationship
+        price_change = ta.change(close)
+        volume_price_divergence = 0.0
+        
+        // Volume spike analysis
+        volume_spike = volume_ratio > volume_spike_threshold
+        
+        // Volume trend
+        volume_trend = ta.sma(volume, 5) / ta.sma(volume, 20)
+        
+        // Signal calculation
+        if volume_spike and price_change > 0
+            // High volume + price up = bullish (but could be distribution)
+            signal := 40 + math.min(30, volume_ratio * 10)
+        else if volume_spike and price_change < 0
+            // High volume + price down = bearish (could be capitulation)
+            signal := 60 + math.min(30, volume_ratio * 10)
+        else if volume_trend > 1.2
+            // Increasing volume trend
+            signal := 45
+        else if volume_trend < 0.8
+            // Decreasing volume trend
+            signal := 55
+        else
+            signal := 50
+    
+    signal
+
+// ============================================================================
+// PATTERN RECOGNITION
+// ============================================================================
+
+calculate_pattern_signal() =>
+    var float signal = 50.0
+    
+    if pattern_enabled
+        // Moving averages for trend
+        ma_20 = ta.sma(close, 20)
+        ma_50 = ta.sma(close, 50)
+        
+        // Price structure analysis
+        higher_highs = high > ta.highest(high[1], 10)
+        higher_lows = low > ta.lowest(low[1], 10)
+        lower_highs = high < ta.highest(high[1], 10)
+        lower_lows = low < ta.lowest(low[1], 10)
+        
+        // Volume confirmation
+        volume_ma = ta.sma(volume, volume_ma_length)
+        volume_confirmation = volume > volume_ma
+        
+        // Pattern identification
+        bullish_pattern = higher_highs and higher_lows and close > ma_20 and ma_20 > ma_50
+        bearish_pattern = lower_highs and lower_lows and close < ma_20 and ma_20 < ma_50
+        
+        // Cup and handle approximation
+        cup_handle_setup = close > ma_50 and close < ma_20 and volume < volume_ma
+        
+        // Breakout detection
+        breakout_up = close > ta.highest(high[1], 20) and volume_confirmation
+        breakdown = close < ta.lowest(low[1], 20) and volume_confirmation
+        
+        // Signal calculation
+        if breakout_up
+            signal := 25 // Bullish breakout
+        else if breakdown
+            signal := 75 // Bearish breakdown
+        else if bullish_pattern
+            signal := 35 // Bullish pattern
+        else if bearish_pattern
+            signal := 65 // Bearish pattern
+        else if cup_handle_setup
+            signal := 40 // Potential setup
+        else
+            signal := 50 // Neutral
+    
+    signal
+
+// ============================================================================
+// SIGNAL CALCULATIONS
+// ============================================================================
+
+// Calculate individual components
+sopr_signal = calculate_sopr_signal()
+rsi_signal = calculate_rsi_signal()
+liquidity_signal = calculate_liquidity_signal()
+volume_signal = calculate_volume_signal()
+pattern_signal = calculate_pattern_signal()
+
+// Integrated Trading Parrot signal (weighted combination)
+tp_integrated = (sopr_signal * 0.25 + 
+                rsi_signal * 0.20 + 
+                liquidity_signal * 0.25 + 
+                volume_signal * 0.15 + 
+                pattern_signal * 0.15)
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// Plot individual components
+plot(show_individual ? sopr_signal : na, "SOPR Signal", color.red, 1)
+plot(show_individual ? rsi_signal : na, "RSI Signal", color.blue, 1)
+plot(show_individual ? liquidity_signal : na, "Liquidity Signal", color.orange, 1)
+plot(show_individual ? volume_signal : na, "Volume Signal", color.purple, 1)
+plot(show_individual ? pattern_signal : na, "Pattern Signal", color.green, 1)
+
+// Plot integrated signal
+plot(show_integrated ? tp_integrated : na, "TP Integrated", color.white, 3)
+
+// Reference lines
+hline(80, "Strong Sell", color.red, linestyle=hline.style_dashed)
+hline(60, "Sell", color.orange, linestyle=hline.style_dotted)
+hline(50, "Neutral", color.gray, linestyle=hline.style_solid)
+hline(40, "Buy", color.lime, linestyle=hline.style_dotted)
+hline(20, "Strong Buy", color.green, linestyle=hline.style_dashed)
+
+// Background coloring
+bgcolor(tp_integrated > 80 ? color.new(color.red, 90) : 
+        tp_integrated > 60 ? color.new(color.orange, 90) : 
+        tp_integrated < 20 ? color.new(color.green, 90) : 
+        tp_integrated < 40 ? color.new(color.lime, 90) : na)
+
+// ============================================================================
+// INFORMATION TABLE
+// ============================================================================
+
+if show_table and barstate.islast
+    var table tp_table = table.new(position.top_right, 3, 7, bgcolor=color.white, border_width=1)
+    
+    table.cell(tp_table, 0, 0, "Trading Parrot Analysis", text_color=color.white, bgcolor=color.purple)
+    table.cell(tp_table, 1, 0, "Signal", text_color=color.white, bgcolor=color.purple)
+    table.cell(tp_table, 2, 0, "Status", text_color=color.white, bgcolor=color.purple)
+    
+    // SOPR
+    sopr_status = sopr_signal > 70 ? "SELL" : sopr_signal < 30 ? "BUY" : "HOLD"
+    sopr_color = sopr_signal > 70 ? color.red : sopr_signal < 30 ? color.green : color.gray
+    table.cell(tp_table, 0, 1, "SOPR", text_color=color.black)
+    table.cell(tp_table, 1, 1, str.tostring(math.round(sopr_signal, 1)), text_color=color.black)
+    table.cell(tp_table, 2, 1, sopr_status, text_color=color.white, bgcolor=sopr_color)
+    
+    // RSI
+    rsi_status = rsi_signal > 70 ? "SELL" : rsi_signal < 30 ? "BUY" : "HOLD"
+    rsi_color = rsi_signal > 70 ? color.red : rsi_signal < 30 ? color.green : color.gray
+    table.cell(tp_table, 0, 2, "Custom RSI", text_color=color.black)
+    table.cell(tp_table, 1, 2, str.tostring(math.round(rsi_signal, 1)), text_color=color.black)
+    table.cell(tp_table, 2, 2, rsi_status, text_color=color.white, bgcolor=rsi_color)
+    
+    // Liquidity
+    liq_status = liquidity_signal > 70 ? "RESISTANCE" : liquidity_signal < 30 ? "SUPPORT" : "NEUTRAL"
+    liq_color = liquidity_signal > 70 ? color.red : liquidity_signal < 30 ? color.green : color.gray
+    table.cell(tp_table, 0, 3, "Liquidity", text_color=color.black)
+    table.cell(tp_table, 1, 3, str.tostring(math.round(liquidity_signal, 1)), text_color=color.black)
+    table.cell(tp_table, 2, 3, liq_status, text_color=color.white, bgcolor=liq_color)
+    
+    // Volume
+    vol_status = volume_signal > 60 ? "HIGH" : volume_signal < 40 ? "LOW" : "NORMAL"
+    vol_color = volume_signal > 60 ? color.orange : volume_signal < 40 ? color.blue : color.gray
+    table.cell(tp_table, 0, 4, "Volume", text_color=color.black)
+    table.cell(tp_table, 1, 4, str.tostring(math.round(volume_signal, 1)), text_color=color.black)
+    table.cell(tp_table, 2, 4, vol_status, text_color=color.white, bgcolor=vol_color)
+    
+    // Patterns
+    pat_status = pattern_signal > 60 ? "BEARISH" : pattern_signal < 40 ? "BULLISH" : "NEUTRAL"
+    pat_color = pattern_signal > 60 ? color.red : pattern_signal < 40 ? color.green : color.gray
+    table.cell(tp_table, 0, 5, "Patterns", text_color=color.black)
+    table.cell(tp_table, 1, 5, str.tostring(math.round(pattern_signal, 1)), text_color=color.black)
+    table.cell(tp_table, 2, 5, pat_status, text_color=color.white, bgcolor=pat_color)
+    
+    // Integrated
+    int_status = tp_integrated > 70 ? "STRONG SELL" : tp_integrated > 55 ? "SELL" : tp_integrated < 30 ? "STRONG BUY" : tp_integrated < 45 ? "BUY" : "HOLD"
+    int_color = tp_integrated > 70 ? color.red : tp_integrated > 55 ? color.orange : tp_integrated < 30 ? color.green : tp_integrated < 45 ? color.lime : color.gray
+    table.cell(tp_table, 0, 6, "INTEGRATED", text_color=color.white, bgcolor=color.black)
+    table.cell(tp_table, 1, 6, str.tostring(math.round(tp_integrated, 1)), text_color=color.white, bgcolor=color.black)
+    table.cell(tp_table, 2, 6, int_status, text_color=color.white, bgcolor=int_color)
+
+// ============================================================================
+// TRADING PARROT METHODOLOGY NOTES
+// ============================================================================
+
+if barstate.islast and show_table
+    var table method_table = table.new(position.bottom_left, 1, 6, bgcolor=color.new(color.purple, 80), border_width=1)
+    
+    table.cell(method_table, 0, 0, "Trading Parrot Methodology", text_color=color.white, bgcolor=color.purple)
+    table.cell(method_table, 0, 1, "✓ Risk-First Approach", text_color=color.white)
+    table.cell(method_table, 0, 2, "✓ Multi-Source Analysis", text_color=color.white)
+    table.cell(method_table, 0, 3, "✓ On-Chain Integration", text_color=color.white)
+    table.cell(method_table, 0, 4, "✓ Liquidity Mapping", text_color=color.white)
+    table.cell(method_table, 0, 5, "✓ 6-12 Month Thesis", text_color=color.white)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+// Strong signals
+if tp_integrated > 80 and tp_integrated[1] <= 80
+    alert("🚨 Trading Parrot STRONG SELL: Integrated signal at " + str.tostring(tp_integrated, "#.#") + 
+          ". Multiple bearish factors converging!", alert.freq_once_per_bar)
+
+if tp_integrated < 20 and tp_integrated[1] >= 20
+    alert("🟢 Trading Parrot STRONG BUY: Integrated signal at " + str.tostring(tp_integrated, "#.#") + 
+          ". Multiple bullish factors converging!", alert.freq_once_per_bar)
+
+// SOPR specific alerts
+if sopr_signal > 85 and sopr_signal[1] <= 85
+    alert("📊 SOPR Alert: Heavy profit taking detected. Signal: " + str.tostring(sopr_signal, "#.#"), alert.freq_once_per_bar)
+
+if sopr_signal < 25 and sopr_signal[1] >= 25
+    alert("📊 SOPR Alert: Capitulation/loss taking detected. Signal: " + str.tostring(sopr_signal, "#.#"), alert.freq_once_per_bar)
+
+// ============================================================================
+// END OF TRADING PARROT INDICATOR
+// ============================================================================
+

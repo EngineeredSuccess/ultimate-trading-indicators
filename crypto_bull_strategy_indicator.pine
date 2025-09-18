@@ -1,0 +1,335 @@
+//@version=5
+indicator("Crypto Bull Market Strategy", "Crypto-Bull", overlay=true, max_bars_back=500)
+
+// ============================================================================
+// CRYPTO BULL MARKET STRATEGY INDICATOR
+// ============================================================================
+// Based on the comprehensive crypto bull market strategy:
+// 1. Bitcoin $200,000 target by mid-2026
+// 2. 50-week SMA as exit indicator
+// 3. Altcoin season rotation strategy
+// 4. Long-term hold strategy ($1M Bitcoin potential)
+// ============================================================================
+
+// INPUT PARAMETERS
+// ============================================================================
+
+// Bitcoin Strategy Settings
+btc_target_2026 = input.float(200000, "Bitcoin 2026 Target", minval=100000, maxval=1000000, group="Bitcoin Strategy")
+btc_ultimate_target = input.float(1000000, "Bitcoin Ultimate Target", minval=500000, maxval=5000000, group="Bitcoin Strategy")
+sma_50w_length = input.int(350, "50-Week SMA (Daily Equivalent)", minval=200, maxval=500, group="Bitcoin Strategy")
+
+// Altcoin Strategy Settings
+altseason_enabled = input.bool(true, "Enable Altseason Analysis", group="Altcoin Strategy")
+btc_dominance_symbol = input.symbol("CRYPTOCAP:BTC.D", "BTC Dominance Symbol", group="Altcoin Strategy")
+total_crypto_mcap = input.symbol("CRYPTOCAP:TOTAL", "Total Crypto Market Cap", group="Altcoin Strategy")
+
+// Phase Settings
+show_phases = input.bool(true, "Show Market Phases", group="Display")
+show_targets = input.bool(true, "Show Price Targets", group="Display")
+show_sma = input.bool(true, "Show 50-Week SMA", group="Display")
+show_progress = input.bool(true, "Show Progress Indicators", group="Display")
+
+// Alert Settings
+enable_alerts = input.bool(true, "Enable Strategy Alerts", group="Alerts")
+
+// ============================================================================
+// DATA RETRIEVAL
+// ============================================================================
+
+// Get BTC dominance and total market cap
+btc_dominance = request.security(btc_dominance_symbol, timeframe.period, close)
+total_mcap = request.security(total_crypto_mcap, timeframe.period, close)
+
+// Calculate 50-week SMA
+sma_50w = ta.sma(close, sma_50w_length)
+
+// ============================================================================
+// STRATEGY CALCULATIONS
+// ============================================================================
+
+// Progress toward 2026 target
+progress_2026 = (close / btc_target_2026) * 100
+progress_ultimate = (close / btc_ultimate_target) * 100
+
+// Time-based analysis (approximate)
+current_year = year(timenow)
+target_year = 2026
+years_to_target = target_year - current_year
+months_to_target = years_to_target * 12
+
+// Required monthly growth rate to reach target
+monthly_growth_needed = months_to_target > 0 ? math.pow(btc_target_2026 / close, 1 / months_to_target) - 1 : 0
+
+// Bull market phase detection
+bull_phase = 0
+phase_description = ""
+
+if close > sma_50w
+    if progress_2026 < 25
+        bull_phase := 1
+        phase_description := "Early Bull Phase"
+    else if progress_2026 < 50
+        bull_phase := 2
+        phase_description := "Acceleration Phase"
+    else if progress_2026 < 75
+        bull_phase := 3
+        phase_description := "Mature Bull Phase"
+    else if progress_2026 < 100
+        bull_phase := 4
+        phase_description := "Target Approach"
+    else
+        bull_phase := 5
+        phase_description := "Beyond Target"
+else
+    bull_phase := 0
+    phase_description := "Bear/Correction Phase"
+
+// Altseason analysis
+altseason_active = false
+altseason_strength = 0.0
+
+if altseason_enabled and not na(btc_dominance)
+    // Altseason typically occurs when BTC dominance is declining
+    btc_dom_ma = ta.sma(btc_dominance, 20)
+    btc_dom_declining = btc_dominance < btc_dom_ma
+    
+    // Altseason strength based on dominance decline rate
+    dom_roc = ta.roc(btc_dominance, 30)
+    
+    if btc_dom_declining and dom_roc < -5
+        altseason_active := true
+        altseason_strength := math.min(100, math.abs(dom_roc) * 10)
+    else if btc_dom_declining and dom_roc < 0
+        altseason_strength := math.min(50, math.abs(dom_roc) * 20)
+
+// Strategy signal calculation
+strategy_signal = 0.0
+
+if close > sma_50w
+    // Bullish signal, but adjust based on progress
+    base_bullish = 30
+    progress_penalty = (progress_2026 / 100) * 40 // Higher penalty as we approach target
+    strategy_signal := base_bullish + progress_penalty
+else
+    // Below 50-week SMA - bearish
+    distance_below = (sma_50w - close) / sma_50w * 100
+    strategy_signal := 60 + math.min(30, distance_below * 2)
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// Plot 50-week SMA
+plot(show_sma ? sma_50w : na, "50-Week SMA", color.blue, 3)
+
+// Plot price
+plot(close, "Price", color.white, 2)
+
+// Target lines
+hline_2026 = show_targets ? btc_target_2026 : na
+hline_ultimate = show_targets ? btc_ultimate_target : na
+
+// Phase coloring
+phase_color = bull_phase == 1 ? color.new(color.green, 90) :
+              bull_phase == 2 ? color.new(color.lime, 90) :
+              bull_phase == 3 ? color.new(color.yellow, 90) :
+              bull_phase == 4 ? color.new(color.orange, 90) :
+              bull_phase == 5 ? color.new(color.red, 90) : 
+              color.new(color.gray, 95)
+
+bgcolor(show_phases ? phase_color : na)
+
+// Signal indicators
+bull_signal = close > sma_50w and close > close[1] and strategy_signal < 50
+bear_signal = close < sma_50w and close < close[1] and strategy_signal > 70
+
+plotshape(bull_signal, "Bull Signal", shape.triangleup, location.belowbar, 
+          color.green, size=size.large)
+plotshape(bear_signal, "Bear Signal", shape.triangledown, location.abovebar, 
+          color.red, size=size.large)
+
+// Altseason indicators
+altseason_color = altseason_active ? color.new(color.purple, 70) : na
+bgcolor(altseason_enabled and altseason_active ? altseason_color : na)
+
+// ============================================================================
+// LABELS AND ANNOTATIONS
+// ============================================================================
+
+// Target labels
+if show_targets and barstate.islast
+    label.new(bar_index + 10, btc_target_2026, "2026 Target: $" + str.tostring(btc_target_2026, "#,###"), 
+              color=color.orange, textcolor=color.white, style=label.style_label_left, size=size.normal)
+    
+    label.new(bar_index + 10, btc_ultimate_target, "Ultimate Target: $" + str.tostring(btc_ultimate_target, "#,###"), 
+              color=color.red, textcolor=color.white, style=label.style_label_left, size=size.normal)
+
+// Phase transition labels
+phase_change = bull_phase != bull_phase[1]
+if show_phases and phase_change and bull_phase > 0
+    label.new(bar_index, high * 1.02, phase_description + "\n$" + str.tostring(close, "#,###"), 
+              color=color.blue, textcolor=color.white, style=label.style_label_down, size=size.normal)
+
+// ============================================================================
+// INFORMATION TABLE
+// ============================================================================
+
+if barstate.islast
+    var table strategy_table = table.new(position.top_right, 2, 10, bgcolor=color.white, border_width=1)
+    
+    table.cell(strategy_table, 0, 0, "Crypto Bull Strategy", text_color=color.white, bgcolor=color.orange)
+    table.cell(strategy_table, 1, 0, "Current Status", text_color=color.white, bgcolor=color.orange)
+    
+    // Current phase
+    phase_color_display = bull_phase > 0 ? color.green : color.red
+    table.cell(strategy_table, 0, 1, "Phase:", text_color=color.black)
+    table.cell(strategy_table, 1, 1, phase_description, text_color=color.white, bgcolor=phase_color_display)
+    
+    // Progress to 2026 target
+    table.cell(strategy_table, 0, 2, "2026 Progress:", text_color=color.black)
+    table.cell(strategy_table, 1, 2, str.tostring(progress_2026, "#.#") + "%", text_color=color.black)
+    
+    // Progress to ultimate target
+    table.cell(strategy_table, 0, 3, "Ultimate Progress:", text_color=color.black)
+    table.cell(strategy_table, 1, 3, str.tostring(progress_ultimate, "#.#") + "%", text_color=color.black)
+    
+    // 50-week SMA status
+    sma_status = close > sma_50w ? "ABOVE" : "BELOW"
+    sma_color = close > sma_50w ? color.green : color.red
+    table.cell(strategy_table, 0, 4, "50W SMA:", text_color=color.black)
+    table.cell(strategy_table, 1, 4, sma_status, text_color=color.white, bgcolor=sma_color)
+    
+    // Strategy signal
+    signal_status = strategy_signal < 40 ? "BUY" : strategy_signal > 60 ? "SELL" : "HOLD"
+    signal_color = strategy_signal < 40 ? color.green : strategy_signal > 60 ? color.red : color.gray
+    table.cell(strategy_table, 0, 5, "Signal:", text_color=color.black)
+    table.cell(strategy_table, 1, 5, signal_status + " (" + str.tostring(strategy_signal, "#") + ")", text_color=color.white, bgcolor=signal_color)
+    
+    // Monthly growth needed
+    table.cell(strategy_table, 0, 6, "Monthly Growth:", text_color=color.black)
+    table.cell(strategy_table, 1, 6, str.tostring(monthly_growth_needed * 100, "#.#") + "%", text_color=color.black)
+    
+    // Altseason status
+    if altseason_enabled
+        alt_status = altseason_active ? "ACTIVE" : "INACTIVE"
+        alt_color = altseason_active ? color.purple : color.gray
+        table.cell(strategy_table, 0, 7, "Altseason:", text_color=color.black)
+        table.cell(strategy_table, 1, 7, alt_status, text_color=color.white, bgcolor=alt_color)
+        
+        // BTC Dominance
+        table.cell(strategy_table, 0, 8, "BTC Dominance:", text_color=color.black)
+        table.cell(strategy_table, 1, 8, str.tostring(btc_dominance, "#.#") + "%", text_color=color.black)
+    
+    // Current price vs SMA
+    sma_distance = ((close - sma_50w) / sma_50w) * 100
+    table.cell(strategy_table, 0, 9, "SMA Distance:", text_color=color.black)
+    table.cell(strategy_table, 1, 9, str.tostring(sma_distance, "#.#") + "%", text_color=color.black)
+
+// ============================================================================
+// STRATEGY PHASES TABLE
+// ============================================================================
+
+if barstate.islast and show_phases
+    var table phases_table = table.new(position.bottom_right, 3, 6, bgcolor=color.new(color.blue, 80), border_width=1)
+    
+    table.cell(phases_table, 0, 0, "Bull Market Phases", text_color=color.white, bgcolor=color.blue)
+    table.cell(phases_table, 1, 0, "Price Range", text_color=color.white, bgcolor=color.blue)
+    table.cell(phases_table, 2, 0, "Strategy", text_color=color.white, bgcolor=color.blue)
+    
+    table.cell(phases_table, 0, 1, "Phase 1: Early", text_color=color.white)
+    table.cell(phases_table, 1, 1, "$0-$50K", text_color=color.white)
+    table.cell(phases_table, 2, 1, "Accumulate", text_color=color.white)
+    
+    table.cell(phases_table, 0, 2, "Phase 2: Acceleration", text_color=color.white)
+    table.cell(phases_table, 1, 2, "$50K-$100K", text_color=color.white)
+    table.cell(phases_table, 2, 2, "Hold & Add", text_color=color.white)
+    
+    table.cell(phases_table, 0, 3, "Phase 3: Mature", text_color=color.white)
+    table.cell(phases_table, 1, 3, "$100K-$150K", text_color=color.white)
+    table.cell(phases_table, 2, 3, "Monitor Closely", text_color=color.white)
+    
+    table.cell(phases_table, 0, 4, "Phase 4: Target", text_color=color.white)
+    table.cell(phases_table, 1, 4, "$150K-$200K", text_color=color.white)
+    table.cell(phases_table, 2, 4, "Prepare Exit", text_color=color.white)
+    
+    table.cell(phases_table, 0, 5, "Phase 5: Beyond", text_color=color.white)
+    table.cell(phases_table, 1, 5, "$200K+", text_color=color.white)
+    table.cell(phases_table, 2, 5, "Take Profits", text_color=color.white)
+
+// ============================================================================
+// ALTCOIN ROTATION STRATEGY
+// ============================================================================
+
+if barstate.islast and altseason_enabled
+    var table altcoin_table = table.new(position.bottom_left, 2, 5, bgcolor=color.new(color.purple, 80), border_width=1)
+    
+    table.cell(altcoin_table, 0, 0, "Altcoin Rotation", text_color=color.white, bgcolor=color.purple)
+    table.cell(altcoin_table, 1, 0, "Current Focus", text_color=color.white, bgcolor=color.purple)
+    
+    // Determine current altcoin focus based on phase
+    alt_focus = ""
+    if bull_phase <= 2
+        alt_focus := "Large-Cap Alts"
+    else if bull_phase == 3
+        alt_focus := "Mid-Cap Rotation"
+    else if bull_phase >= 4
+        alt_focus := "Low-Cap Final"
+    else
+        alt_focus := "BTC Focus"
+    
+    table.cell(altcoin_table, 0, 1, "Phase " + str.tostring(bull_phase) + ":", text_color=color.white)
+    table.cell(altcoin_table, 1, 1, alt_focus, text_color=color.white)
+    
+    table.cell(altcoin_table, 0, 2, "Altseason:", text_color=color.white)
+    table.cell(altcoin_table, 1, 2, altseason_active ? "ACTIVE" : "WAITING", text_color=color.white)
+    
+    table.cell(altcoin_table, 0, 3, "Strength:", text_color=color.white)
+    table.cell(altcoin_table, 1, 3, str.tostring(altseason_strength, "#") + "/100", text_color=color.white)
+    
+    table.cell(altcoin_table, 0, 4, "BTC Dom Trend:", text_color=color.white)
+    dom_trend = btc_dominance < ta.sma(btc_dominance, 20) ? "DECLINING" : "RISING"
+    table.cell(altcoin_table, 1, 4, dom_trend, text_color=color.white)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+if enable_alerts
+    // 50-week SMA alerts
+    if ta.crossover(close, sma_50w)
+        alert("🚀 CRYPTO BULL SIGNAL! Price crossed above 50-week SMA at $" + str.tostring(close, "#,###") + 
+              ". Bull market phase activated!", alert.freq_once_per_bar)
+    
+    if ta.crossunder(close, sma_50w)
+        alert("🔴 CRYPTO BEAR SIGNAL! Price crossed below 50-week SMA at $" + str.tostring(close, "#,###") + 
+              ". Exit strategy activated!", alert.freq_once_per_bar)
+    
+    // Target milestone alerts
+    if progress_2026 >= 25 and progress_2026[1] < 25
+        alert("🎯 25% TARGET PROGRESS! Bitcoin at $" + str.tostring(close, "#,###") + 
+              ". Entering acceleration phase.", alert.freq_once_per_bar)
+    
+    if progress_2026 >= 50 and progress_2026[1] < 50
+        alert("🎯 50% TARGET PROGRESS! Bitcoin at $" + str.tostring(close, "#,###") + 
+              ". Halfway to 2026 target!", alert.freq_once_per_bar)
+    
+    if progress_2026 >= 75 and progress_2026[1] < 75
+        alert("🎯 75% TARGET PROGRESS! Bitcoin at $" + str.tostring(close, "#,###") + 
+              ". Approaching target zone - prepare exit strategy!", alert.freq_once_per_bar)
+    
+    if progress_2026 >= 100 and progress_2026[1] < 100
+        alert("🎯 2026 TARGET REACHED! Bitcoin hit $" + str.tostring(close, "#,###") + 
+              ". Consider taking profits according to strategy!", alert.freq_once_per_bar)
+    
+    // Altseason alerts
+    if altseason_active and not altseason_active[1]
+        alert("🌟 ALTSEASON ACTIVATED! BTC dominance declining. Time for altcoin rotation strategy!", alert.freq_once_per_bar)
+    
+    if not altseason_active and altseason_active[1]
+        alert("📊 ALTSEASON ENDED! BTC dominance recovering. Focus back to Bitcoin!", alert.freq_once_per_bar)
+
+// ============================================================================
+// END OF CRYPTO BULL STRATEGY INDICATOR
+// ============================================================================
+

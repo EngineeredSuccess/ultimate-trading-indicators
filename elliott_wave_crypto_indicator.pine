@@ -1,0 +1,333 @@
+//@version=5
+indicator("Elliott Wave Crypto Analysis", "EW-Crypto", overlay=true, max_bars_back=1000)
+
+// ============================================================================
+// ELLIOTT WAVE CRYPTO ANALYSIS INDICATOR
+// ============================================================================
+// Based on Paul Webborn's Elliott Wave methodology applied to crypto markets
+// Identifies wave patterns, Fibonacci retracements, and cycle completion
+// ============================================================================
+
+// INPUT PARAMETERS
+// ============================================================================
+
+// Wave Analysis Settings
+wave_enabled = input.bool(true, "Enable Wave Analysis", group="Elliott Wave")
+wave_length = input.int(50, "Wave Analysis Length", minval=20, maxval=200, group="Elliott Wave")
+fibonacci_enabled = input.bool(true, "Show Fibonacci Levels", group="Elliott Wave")
+
+// Fibonacci Settings
+fib_extension = input.bool(true, "Show Extensions", group="Fibonacci")
+fib_retracement = input.bool(true, "Show Retracements", group="Fibonacci")
+fib_transparency = input.int(80, "Fibonacci Transparency", minval=0, maxval=100, group="Fibonacci")
+
+// Wave Counting
+auto_count = input.bool(true, "Auto Wave Counting", group="Wave Counting")
+manual_override = input.bool(false, "Manual Override", group="Wave Counting")
+current_wave = input.int(5, "Current Wave (Manual)", minval=1, maxval=5, group="Wave Counting")
+
+// Display Settings
+show_wave_labels = input.bool(true, "Show Wave Labels", group="Display")
+show_trend_lines = input.bool(true, "Show Trend Lines", group="Display")
+show_signals = input.bool(true, "Show Trading Signals", group="Display")
+
+// Alert Settings
+enable_alerts = input.bool(true, "Enable Alerts", group="Alerts")
+
+// ============================================================================
+// WAVE IDENTIFICATION FUNCTIONS
+// ============================================================================
+
+// Identify significant highs and lows
+identify_pivots(length) =>
+    pivot_high = ta.pivothigh(high, length, length)
+    pivot_low = ta.pivotlow(low, length, length)
+    [pivot_high, pivot_low]
+
+// Calculate wave momentum
+wave_momentum(start_price, end_price, bars) =>
+    price_change = (end_price - start_price) / start_price
+    momentum = price_change / bars * 100
+    momentum
+
+// Fibonacci level calculations
+calc_fibonacci_levels(wave_start, wave_end) =>
+    wave_range = wave_end - wave_start
+    
+    // Retracement levels
+    fib_236 = wave_end - (wave_range * 0.236)
+    fib_382 = wave_end - (wave_range * 0.382)
+    fib_500 = wave_end - (wave_range * 0.500)
+    fib_618 = wave_end - (wave_range * 0.618)
+    fib_786 = wave_end - (wave_range * 0.786)
+    
+    // Extension levels
+    ext_1272 = wave_end + (wave_range * 0.272)
+    ext_1618 = wave_end + (wave_range * 0.618)
+    ext_2618 = wave_end + (wave_range * 1.618)
+    
+    [fib_236, fib_382, fib_500, fib_618, fib_786, ext_1272, ext_1618, ext_2618]
+
+// ============================================================================
+// WAVE PATTERN ANALYSIS
+// ============================================================================
+
+// Detect wave patterns
+detect_wave_pattern() =>
+    var int wave_count = 1
+    var float wave_1_high = na
+    var float wave_2_low = na
+    var float wave_3_high = na
+    var float wave_4_low = na
+    var float wave_5_high = na
+    
+    // Get pivot points
+    [pivot_high, pivot_low] = identify_pivots(wave_length / 4)
+    
+    // Simple wave counting logic
+    if auto_count
+        // Detect impulse waves (simplified)
+        if not na(pivot_high) and close > close[wave_length]
+            if na(wave_1_high)
+                wave_1_high := pivot_high
+                wave_count := 1
+            else if na(wave_3_high) and pivot_high > wave_1_high
+                wave_3_high := pivot_high
+                wave_count := 3
+            else if na(wave_5_high) and pivot_high > wave_3_high
+                wave_5_high := pivot_high
+                wave_count := 5
+        
+        if not na(pivot_low) and close < close[wave_length]
+            if not na(wave_1_high) and na(wave_2_low)
+                wave_2_low := pivot_low
+                wave_count := 2
+            else if not na(wave_3_high) and na(wave_4_low)
+                wave_4_low := pivot_low
+                wave_count := 4
+    else
+        wave_count := current_wave
+    
+    [wave_count, wave_1_high, wave_2_low, wave_3_high, wave_4_low, wave_5_high]
+
+// ============================================================================
+// ELLIOTT WAVE SIGNAL CALCULATION
+// ============================================================================
+
+calculate_elliott_signal() =>
+    var float signal = 50.0
+    
+    if wave_enabled
+        [wave_num, w1_high, w2_low, w3_high, w4_low, w5_high] = detect_wave_pattern()
+        
+        // Price momentum analysis
+        momentum_short = ta.mom(close, wave_length / 5)
+        momentum_medium = ta.mom(close, wave_length / 2)
+        momentum_long = ta.mom(close, wave_length)
+        
+        // RSI for momentum confirmation
+        rsi_wave = ta.rsi(close, wave_length / 3)
+        
+        // Volume analysis
+        volume_ma = ta.sma(volume, 20)
+        volume_ratio = volume / volume_ma
+        
+        // Wave-specific analysis
+        if wave_num == 1
+            // Wave 1: Initial impulse
+            signal := 30 // Bullish
+        else if wave_num == 2
+            // Wave 2: Correction
+            signal := 60 // Bearish correction
+        else if wave_num == 3
+            // Wave 3: Strongest impulse
+            signal := 20 // Very bullish
+        else if wave_num == 4
+            // Wave 4: Complex correction
+            signal := 65 // Bearish correction
+        else if wave_num == 5
+            // Wave 5: Final impulse (potential top)
+            // Check for divergences
+            momentum_divergence = momentum_long < momentum_long[10] and close > close[10]
+            volume_divergence = volume_ratio < 1.0 and close > close[10]
+            
+            if momentum_divergence or volume_divergence or rsi_wave > 70
+                signal := 85 // Very bearish (potential top)
+            else
+                signal := 45 // Cautious bullish
+        else
+            // Default analysis based on momentum
+            if momentum_long > 0 and momentum_medium > 0 and momentum_short < 0
+                signal := 70 // Potential Wave 5 top
+            else if rsi_wave > 70 and volume_ratio < 0.8
+                signal := 75 // Overbought with weak volume
+            else if momentum_long < 0 and momentum_medium < 0
+                signal := 35 // Corrective phase
+            else if rsi_wave < 30 and volume_ratio > 1.5
+                signal := 25 // Oversold with strong volume
+            else
+                signal := 50 // Neutral
+    
+    signal
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+
+// Get wave analysis
+[current_wave_num, wave_1_high, wave_2_low, wave_3_high, wave_4_low, wave_5_high] = detect_wave_pattern()
+
+// Calculate Elliott Wave signal
+elliott_signal = calculate_elliott_signal()
+
+// Get pivot points for visualization
+[pivot_high, pivot_low] = identify_pivots(wave_length / 4)
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// Plot pivot points
+plotshape(not na(pivot_high), "Pivot High", shape.triangledown, location.abovebar, 
+          color.red, size=size.small)
+plotshape(not na(pivot_low), "Pivot Low", shape.triangleup, location.belowbar, 
+          color.green, size=size.small)
+
+// Wave labels
+if show_wave_labels and not na(pivot_high)
+    label.new(bar_index, pivot_high, str.tostring(current_wave_num), 
+              color=color.blue, textcolor=color.white, style=label.style_circle, size=size.normal)
+
+if show_wave_labels and not na(pivot_low)
+    label.new(bar_index, pivot_low, str.tostring(current_wave_num), 
+              color=color.red, textcolor=color.white, style=label.style_circle, size=size.normal)
+
+// Trend lines (simplified)
+if show_trend_lines and not na(wave_1_high) and not na(wave_3_high)
+    line.new(bar_index[100], wave_1_high, bar_index, wave_3_high, 
+             color=color.blue, width=2, style=line.style_solid)
+
+// Fibonacci levels
+if fibonacci_enabled and not na(wave_1_high) and not na(wave_2_low)
+    [fib_236, fib_382, fib_500, fib_618, fib_786, ext_1272, ext_1618, ext_2618] = 
+        calc_fibonacci_levels(wave_2_low, wave_1_high)
+    
+    // Draw Fibonacci retracement levels
+    if fib_retracement
+        line.new(bar_index[50], fib_236, bar_index, fib_236, 
+                 color=color.new(color.yellow, fib_transparency), width=1, style=line.style_dashed)
+        line.new(bar_index[50], fib_382, bar_index, fib_382, 
+                 color=color.new(color.orange, fib_transparency), width=1, style=line.style_dashed)
+        line.new(bar_index[50], fib_618, bar_index, fib_618, 
+                 color=color.new(color.red, fib_transparency), width=2, style=line.style_dashed)
+
+// Trading signals
+wave_5_completion = current_wave_num == 5 and elliott_signal > 80
+wave_2_4_opportunity = (current_wave_num == 2 or current_wave_num == 4) and elliott_signal < 40
+
+plotshape(show_signals and wave_5_completion, "Wave 5 Top", shape.triangledown, 
+          location.abovebar, color.red, size=size.large)
+plotshape(show_signals and wave_2_4_opportunity, "Wave Opportunity", shape.triangleup, 
+          location.belowbar, color.green, size=size.large)
+
+// ============================================================================
+// INFORMATION TABLE
+// ============================================================================
+
+if barstate.islast
+    var table ew_table = table.new(position.top_left, 2, 7, bgcolor=color.white, border_width=1)
+    
+    table.cell(ew_table, 0, 0, "Elliott Wave Analysis", text_color=color.white, bgcolor=color.blue)
+    table.cell(ew_table, 1, 0, "Current Status", text_color=color.white, bgcolor=color.blue)
+    
+    // Current wave
+    table.cell(ew_table, 0, 1, "Current Wave:", text_color=color.black)
+    table.cell(ew_table, 1, 1, str.tostring(current_wave_num), text_color=color.black)
+    
+    // Signal strength
+    signal_status = elliott_signal > 70 ? "BEARISH" : elliott_signal < 30 ? "BULLISH" : "NEUTRAL"
+    signal_color = elliott_signal > 70 ? color.red : elliott_signal < 30 ? color.green : color.gray
+    table.cell(ew_table, 0, 2, "Signal:", text_color=color.black)
+    table.cell(ew_table, 1, 2, str.tostring(math.round(elliott_signal, 1)) + "/100", text_color=color.black)
+    
+    // Wave status
+    table.cell(ew_table, 0, 3, "Status:", text_color=color.black)
+    table.cell(ew_table, 1, 3, signal_status, text_color=color.white, bgcolor=signal_color)
+    
+    // Momentum
+    momentum = ta.mom(close, 20)
+    table.cell(ew_table, 0, 4, "Momentum:", text_color=color.black)
+    table.cell(ew_table, 1, 4, str.tostring(momentum, "#.##") + "%", text_color=color.black)
+    
+    // RSI
+    rsi_current = ta.rsi(close, 14)
+    table.cell(ew_table, 0, 5, "RSI:", text_color=color.black)
+    table.cell(ew_table, 1, 5, str.tostring(math.round(rsi_current, 1)), text_color=color.black)
+    
+    // Volume ratio
+    vol_ratio = volume / ta.sma(volume, 20)
+    table.cell(ew_table, 0, 6, "Volume Ratio:", text_color=color.black)
+    table.cell(ew_table, 1, 6, str.tostring(vol_ratio, "#.##"), text_color=color.black)
+
+// ============================================================================
+// WAVE THEORY REFERENCE
+// ============================================================================
+
+if barstate.islast
+    var table theory_table = table.new(position.bottom_right, 2, 6, bgcolor=color.new(color.blue, 80), border_width=1)
+    
+    table.cell(theory_table, 0, 0, "Elliott Wave Theory", text_color=color.white, bgcolor=color.blue)
+    table.cell(theory_table, 1, 0, "Characteristics", text_color=color.white, bgcolor=color.blue)
+    
+    table.cell(theory_table, 0, 1, "Wave 1", text_color=color.white)
+    table.cell(theory_table, 1, 1, "Initial impulse", text_color=color.white)
+    
+    table.cell(theory_table, 0, 2, "Wave 2", text_color=color.white)
+    table.cell(theory_table, 1, 2, "Sharp correction", text_color=color.white)
+    
+    table.cell(theory_table, 0, 3, "Wave 3", text_color=color.white)
+    table.cell(theory_table, 1, 3, "Strongest move", text_color=color.white)
+    
+    table.cell(theory_table, 0, 4, "Wave 4", text_color=color.white)
+    table.cell(theory_table, 1, 4, "Complex correction", text_color=color.white)
+    
+    table.cell(theory_table, 0, 5, "Wave 5", text_color=color.white)
+    table.cell(theory_table, 1, 5, "Final impulse", text_color=color.white)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+if enable_alerts
+    // Wave 5 completion alert
+    if current_wave_num == 5 and elliott_signal > 80 and elliott_signal[1] <= 80
+        alert("🌊 Elliott Wave 5 COMPLETION! Potential major top at $" + str.tostring(close, "#,###") + 
+              ". Signal strength: " + str.tostring(elliott_signal, "#.#"), alert.freq_once_per_bar)
+    
+    // Wave 2/4 opportunity alert
+    if (current_wave_num == 2 or current_wave_num == 4) and elliott_signal < 30 and elliott_signal[1] >= 30
+        alert("🌊 Elliott Wave OPPORTUNITY! Wave " + str.tostring(current_wave_num) + " correction at $" + 
+              str.tostring(close, "#,###") + ". Potential entry point.", alert.freq_once_per_bar)
+    
+    // Wave 3 breakout alert
+    if current_wave_num == 3 and elliott_signal < 25 and elliott_signal[1] >= 25
+        alert("🌊 Elliott Wave 3 BREAKOUT! Strongest impulse wave starting at $" + 
+              str.tostring(close, "#,###") + ". Maximum bullish momentum expected.", alert.freq_once_per_bar)
+
+// ============================================================================
+// WEBBORN METHODOLOGY NOTES
+// ============================================================================
+
+if barstate.islast
+    var table webborn_table = table.new(position.top_right, 1, 5, bgcolor=color.new(color.green, 80), border_width=1)
+    
+    table.cell(webborn_table, 0, 0, "Webborn EW Method", text_color=color.white, bgcolor=color.green)
+    table.cell(webborn_table, 0, 1, "✓ April-Aug 2024 Key", text_color=color.white)
+    table.cell(webborn_table, 0, 2, "✓ Wave 5 Completion", text_color=color.white)
+    table.cell(webborn_table, 0, 3, "✓ Fibonacci Targets", text_color=color.white)
+    table.cell(webborn_table, 0, 4, "✓ Momentum Divergence", text_color=color.white)
+
+// ============================================================================
+// END OF ELLIOTT WAVE INDICATOR
+// ============================================================================
+

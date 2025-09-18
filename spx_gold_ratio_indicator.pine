@@ -1,0 +1,229 @@
+//@version=5
+indicator("SPX/Gold Ratio Bubble Detector", "SPX/Gold", overlay=false, max_bars_back=1000)
+
+// ============================================================================
+// SPX/GOLD RATIO BUBBLE DETECTOR
+// ============================================================================
+// This indicator tracks the SPX/Gold ratio to identify major market bubbles.
+// Historical analysis shows extreme ratios preceded major crashes:
+// - 1929: Ratio peaked before Great Depression
+// - 2000: Dot-com bubble burst at high ratios  
+// - 2025: Henrik Zeberg predicts "Everything Bubble" burst
+// ============================================================================
+
+// INPUT PARAMETERS
+spx_symbol = input.symbol("SPY", "SPX Symbol (ETF)", group="Data Sources")
+gold_symbol = input.symbol("GLD", "Gold Symbol (ETF)", group="Data Sources")
+
+// Bubble thresholds based on historical analysis
+bubble_warning = input.float(2.0, "Bubble Warning Level", minval=1.0, maxval=5.0, step=0.1, group="Thresholds")
+bubble_danger = input.float(2.3, "Bubble Danger Level", minval=1.5, maxval=5.0, step=0.1, group="Thresholds")
+bubble_extreme = input.float(2.6, "Bubble Extreme Level", minval=2.0, maxval=5.0, step=0.1, group="Thresholds")
+
+// Display settings
+show_ratio = input.bool(true, "Show Ratio Line", group="Display")
+show_ma = input.bool(true, "Show Moving Average", group="Display")
+show_bands = input.bool(true, "Show Threshold Bands", group="Display")
+show_signals = input.bool(true, "Show Bubble Signals", group="Display")
+
+ma_length = input.int(50, "Moving Average Length", minval=5, maxval=200, group="Display")
+
+// Alert settings
+enable_alerts = input.bool(true, "Enable Alerts", group="Alerts")
+
+// ============================================================================
+// DATA RETRIEVAL
+// ============================================================================
+
+// Get SPX and Gold prices
+spx_price = request.security(spx_symbol, timeframe.period, close)
+gold_price = request.security(gold_symbol, timeframe.period, close)
+
+// Calculate ratio
+spx_gold_ratio = gold_price > 0 ? spx_price / gold_price : na
+
+// Moving average of ratio
+ratio_ma = ta.sma(spx_gold_ratio, ma_length)
+
+// ============================================================================
+// BUBBLE ANALYSIS
+// ============================================================================
+
+// Bubble level detection
+bubble_level = 0
+bubble_color = color.gray
+bubble_text = "Normal"
+
+if spx_gold_ratio >= bubble_extreme
+    bubble_level := 4
+    bubble_color := color.new(color.red, 0)
+    bubble_text := "EXTREME BUBBLE"
+else if spx_gold_ratio >= bubble_danger
+    bubble_level := 3
+    bubble_color := color.new(color.red, 30)
+    bubble_text := "DANGER ZONE"
+else if spx_gold_ratio >= bubble_warning
+    bubble_level := 2
+    bubble_color := color.new(color.orange, 30)
+    bubble_text := "BUBBLE WARNING"
+else if spx_gold_ratio >= bubble_warning * 0.8
+    bubble_level := 1
+    bubble_color := color.new(color.yellow, 50)
+    bubble_text := "ELEVATED"
+else
+    bubble_level := 0
+    bubble_color := color.new(color.green, 50)
+    bubble_text := "NORMAL"
+
+// Signal strength (0-100, higher = more dangerous)
+signal_strength = 0.0
+if spx_gold_ratio >= bubble_extreme
+    signal_strength := 95 + math.min(5, (spx_gold_ratio - bubble_extreme) / bubble_extreme * 20)
+else if spx_gold_ratio >= bubble_danger
+    signal_strength := 80 + ((spx_gold_ratio - bubble_danger) / (bubble_extreme - bubble_danger)) * 15
+else if spx_gold_ratio >= bubble_warning
+    signal_strength := 60 + ((spx_gold_ratio - bubble_warning) / (bubble_danger - bubble_warning)) * 20
+else if spx_gold_ratio >= bubble_warning * 0.8
+    signal_strength := 40 + ((spx_gold_ratio - bubble_warning * 0.8) / (bubble_warning * 0.2)) * 20
+else
+    signal_strength := math.max(0, (spx_gold_ratio / (bubble_warning * 0.8)) * 40)
+
+// Rate of change analysis
+ratio_roc = ta.roc(spx_gold_ratio, 20) // 20-period rate of change
+ratio_acceleration = ta.roc(ratio_roc, 10) // Acceleration
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// Plot the ratio
+plot(show_ratio ? spx_gold_ratio : na, "SPX/Gold Ratio", bubble_color, 2)
+
+// Plot moving average
+plot(show_ma ? ratio_ma : na, "Ratio MA(" + str.tostring(ma_length) + ")", color.white, 1)
+
+// Threshold lines
+hline(bubble_extreme, "Extreme Bubble", color.red, linestyle=hline.style_solid, linewidth=2)
+hline(bubble_danger, "Danger Zone", color.orange, linestyle=hline.style_dashed, linewidth=2)
+hline(bubble_warning, "Bubble Warning", color.yellow, linestyle=hline.style_dotted, linewidth=1)
+
+// Background coloring
+bgcolor(show_bands and bubble_level >= 4 ? color.new(color.red, 85) :
+        show_bands and bubble_level >= 3 ? color.new(color.red, 90) :
+        show_bands and bubble_level >= 2 ? color.new(color.orange, 90) :
+        show_bands and bubble_level >= 1 ? color.new(color.yellow, 95) : na)
+
+// Bubble signals
+bubble_entry = bubble_level > bubble_level[1] and bubble_level >= 2
+bubble_exit = bubble_level < bubble_level[1] and bubble_level[1] >= 2
+
+plotshape(show_signals and bubble_entry, "Bubble Alert", shape.triangleup, location.bottom, 
+          color.red, size=size.large)
+plotshape(show_signals and bubble_exit, "Bubble Relief", shape.triangledown, location.top, 
+          color.green, size=size.normal)
+
+// ============================================================================
+// INFORMATION TABLE
+// ============================================================================
+
+if barstate.islast
+    var table info_table = table.new(position.top_right, 2, 8, bgcolor=color.white, border_width=1)
+    
+    table.cell(info_table, 0, 0, "SPX/Gold Bubble Detector", text_color=color.white, bgcolor=color.blue)
+    table.cell(info_table, 1, 0, "Current Status", text_color=color.white, bgcolor=color.blue)
+    
+    // Current ratio
+    table.cell(info_table, 0, 1, "Ratio:", text_color=color.black)
+    table.cell(info_table, 1, 1, str.tostring(spx_gold_ratio, "#.##"), text_color=color.black)
+    
+    // Bubble status
+    table.cell(info_table, 0, 2, "Status:", text_color=color.black)
+    table.cell(info_table, 1, 2, bubble_text, text_color=color.white, bgcolor=bubble_color)
+    
+    // Signal strength
+    table.cell(info_table, 0, 3, "Signal:", text_color=color.black)
+    table.cell(info_table, 1, 3, str.tostring(math.round(signal_strength, 1)) + "/100", text_color=color.black)
+    
+    // Rate of change
+    table.cell(info_table, 0, 4, "20-Day ROC:", text_color=color.black)
+    table.cell(info_table, 1, 4, str.tostring(ratio_roc, "#.##") + "%", text_color=color.black)
+    
+    // SPX Price
+    table.cell(info_table, 0, 5, "SPX Price:", text_color=color.black)
+    table.cell(info_table, 1, 5, "$" + str.tostring(spx_price, "#.##"), text_color=color.black)
+    
+    // Gold Price
+    table.cell(info_table, 0, 6, "Gold Price:", text_color=color.black)
+    table.cell(info_table, 1, 6, "$" + str.tostring(gold_price, "#.##"), text_color=color.black)
+    
+    // Moving Average
+    table.cell(info_table, 0, 7, "MA(" + str.tostring(ma_length) + "):", text_color=color.black)
+    table.cell(info_table, 1, 7, str.tostring(ratio_ma, "#.##"), text_color=color.black)
+
+// ============================================================================
+// HISTORICAL CONTEXT TABLE
+// ============================================================================
+
+if barstate.islast
+    var table history_table = table.new(position.bottom_right, 2, 5, bgcolor=color.new(color.gray, 80), border_width=1)
+    
+    table.cell(history_table, 0, 0, "Historical Bubble Levels", text_color=color.white, bgcolor=color.gray)
+    table.cell(history_table, 1, 0, "Market Outcome", text_color=color.white, bgcolor=color.gray)
+    
+    table.cell(history_table, 0, 1, "1929: ~2.5", text_color=color.white)
+    table.cell(history_table, 1, 1, "Great Depression", text_color=color.red)
+    
+    table.cell(history_table, 0, 2, "2000: ~2.8", text_color=color.white)
+    table.cell(history_table, 1, 2, "Dot-com Crash", text_color=color.red)
+    
+    table.cell(history_table, 0, 3, "2007: ~2.1", text_color=color.white)
+    table.cell(history_table, 1, 3, "Financial Crisis", text_color=color.orange)
+    
+    table.cell(history_table, 0, 4, "Current: " + str.tostring(spx_gold_ratio, "#.##"), text_color=color.white)
+    table.cell(history_table, 1, 4, bubble_text, text_color=color.white, bgcolor=bubble_color)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+if enable_alerts
+    // Bubble warning alerts
+    if bubble_level >= 2 and bubble_level[1] < 2
+        alert("⚠️ BUBBLE WARNING! SPX/Gold ratio reached " + str.tostring(spx_gold_ratio, "#.##") + 
+              ". Historical bubble territory detected!", alert.freq_once_per_bar)
+    
+    if bubble_level >= 3 and bubble_level[1] < 3
+        alert("🚨 BUBBLE DANGER! SPX/Gold ratio at " + str.tostring(spx_gold_ratio, "#.##") + 
+              ". Extreme bubble conditions similar to 1929/2000!", alert.freq_once_per_bar)
+    
+    if bubble_level >= 4 and bubble_level[1] < 4
+        alert("💥 EXTREME BUBBLE! SPX/Gold ratio at " + str.tostring(spx_gold_ratio, "#.##") + 
+              ". Maximum bubble alert - immediate defensive action recommended!", alert.freq_once_per_bar)
+    
+    // Relief alerts
+    if bubble_level < 2 and bubble_level[1] >= 2
+        alert("✅ BUBBLE RELIEF: SPX/Gold ratio dropped to " + str.tostring(spx_gold_ratio, "#.##") + 
+              ". Bubble warning lifted.", alert.freq_once_per_bar)
+
+// ============================================================================
+// ZEBERG ANALYSIS INTEGRATION
+// ============================================================================
+
+// Add Zeberg's specific analysis points
+zeberg_target_low = 0.07 // Zeberg's ultimate target
+zeberg_current_view = spx_gold_ratio > 2.0 // Currently in "Everything Bubble" territory
+
+if barstate.islast and show_signals
+    // Add Zeberg analysis label
+    var label zeberg_label = label.new(bar_index - 50, spx_gold_ratio, 
+                                      "Zeberg Analysis:\n" + 
+                                      (zeberg_current_view ? "🚨 Everything Bubble\nTarget: 0.07" : "📊 Monitoring"), 
+                                      color=zeberg_current_view ? color.red : color.blue, 
+                                      textcolor=color.white, 
+                                      style=label.style_label_left, 
+                                      size=size.normal)
+
+// ============================================================================
+// END OF SPX/GOLD RATIO INDICATOR
+// ============================================================================
+
