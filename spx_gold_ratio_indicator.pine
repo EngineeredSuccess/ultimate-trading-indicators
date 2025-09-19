@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("SPX/Gold Ratio Bubble Detector", "SPX/Gold", overlay=false, max_bars_back=1000)
 
 // ============================================================================

@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("Elliott Wave Crypto Analysis", "EW-Crypto", overlay=true, max_bars_back=1000)
 
 // ============================================================================

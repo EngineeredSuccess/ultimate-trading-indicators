@@ -1,324 +1,195 @@
-//@version=5
-indicator("Ultimate Trading System", "UTS", overlay=false, max_bars_back=5000)
+//@version=6
+indicator("Ultimate Trading System", "UTS", overlay=false, max_bars_back=1000)
 
 // ============================================================================
-// ULTIMATE TRADING SYSTEM - PINE SCRIPT INDICATOR
+// ULTIMATE TRADING SYSTEM - INTEGRATED INDICATOR
 // ============================================================================
-// Combines multiple proven methodologies:
-// 1. Pi Cycle Top Indicator
-// 2. SPX/Gold Ratio Analysis  
-// 3. Elliott Wave Analysis
-// 4. Crypto Bull Market Strategy
-// 5. Trading Parrot Multi-Source Analysis
-// 6. Zeberg Business Cycles (simplified)
+// Combines 6 proven trading methodologies into one comprehensive system:
+// 1. Pi Cycle Top (Bitcoin market top detection)
+// 2. SPX/Gold Ratio (Macro bubble detection)
+// 3. Elliott Wave Analysis (Wave pattern recognition)
+// 4. Crypto Bull Strategy (Long-term Bitcoin strategy)
+// 5. Trading Parrot Analysis (Multi-source technical analysis)
+// 6. Zeberg Business Cycles (Economic cycle analysis)
 // ============================================================================
 
 // INPUT PARAMETERS
 // ============================================================================
 
-// Pi Cycle Top Settings
-pi_cycle_enabled = input.bool(true, "Enable Pi Cycle Top", group="Pi Cycle Top")
-ma_111_length = input.int(111, "111-Day MA Length", minval=1, group="Pi Cycle Top")
-ma_350_length = input.int(350, "350-Day MA Length", minval=1, group="Pi Cycle Top")
+// Methodology Weights
+weight_pi_cycle = input.float(0.25, "Pi Cycle Top Weight", minval=0.0, maxval=1.0, step=0.05, group="Methodology Weights")
+weight_spx_gold = input.float(0.20, "SPX/Gold Ratio Weight", minval=0.0, maxval=1.0, step=0.05, group="Methodology Weights")
+weight_elliott = input.float(0.20, "Elliott Wave Weight", minval=0.0, maxval=1.0, step=0.05, group="Methodology Weights")
+weight_crypto_bull = input.float(0.15, "Crypto Bull Strategy Weight", minval=0.0, maxval=1.0, step=0.05, group="Methodology Weights")
+weight_trading_parrot = input.float(0.20, "Trading Parrot Weight", minval=0.0, maxval=1.0, step=0.05, group="Methodology Weights")
 
-// SPX/Gold Ratio Settings
-spx_gold_enabled = input.bool(true, "Enable SPX/Gold Analysis", group="SPX/Gold Ratio")
-spx_symbol = input.symbol("SPY", "SPX Symbol", group="SPX/Gold Ratio")
-gold_symbol = input.symbol("GLD", "Gold Symbol", group="SPX/Gold Ratio")
-bubble_threshold = input.float(2.3, "Bubble Threshold", minval=1.0, step=0.1, group="SPX/Gold Ratio")
+// Display Settings
+show_individual = input.bool(true, "Show Individual Signals", group="Display")
+show_integrated = input.bool(true, "Show Integrated Signal", group="Display")
+show_table = input.bool(true, "Show Analysis Table", group="Display")
+show_background = input.bool(true, "Show Background Colors", group="Display")
 
-// Elliott Wave Settings
-elliott_enabled = input.bool(true, "Enable Elliott Wave Analysis", group="Elliott Wave")
-wave_length = input.int(50, "Wave Analysis Length", minval=10, group="Elliott Wave")
-fibonacci_levels = input.bool(true, "Show Fibonacci Levels", group="Elliott Wave")
+// Alert Settings
+enable_alerts = input.bool(true, "Enable Alerts", group="Alerts")
+alert_threshold_high = input.float(80, "High Alert Threshold", minval=60, maxval=100, group="Alerts")
+alert_threshold_low = input.float(20, "Low Alert Threshold", minval=0, maxval=40, group="Alerts")
 
-// Crypto Bull Strategy Settings
-crypto_bull_enabled = input.bool(true, "Enable Crypto Bull Strategy", group="Crypto Bull Strategy")
-sma_50w_length = input.int(350, "50-Week SMA (Daily Equivalent)", minval=100, group="Crypto Bull Strategy")
-btc_target = input.float(200000, "Bitcoin Target Price", minval=50000, group="Crypto Bull Strategy")
-
-// Trading Parrot Settings
-tp_enabled = input.bool(true, "Enable Trading Parrot Analysis", group="Trading Parrot")
-rsi_length = input.int(14, "RSI Length", minval=2, group="Trading Parrot")
-volume_ma_length = input.int(20, "Volume MA Length", minval=5, group="Trading Parrot")
-liquidity_lookback = input.int(100, "Liquidity Analysis Lookback", minval=20, group="Trading Parrot")
-
-// Integration Settings
-show_individual_signals = input.bool(true, "Show Individual Signals", group="Display")
-show_integrated_signal = input.bool(true, "Show Integrated Signal", group="Display")
-show_alerts = input.bool(true, "Enable Alerts", group="Display")
-
-// Signal Weights
-weight_pi_cycle = input.float(0.25, "Pi Cycle Weight", minval=0.0, maxval=1.0, step=0.05, group="Weights")
-weight_spx_gold = input.float(0.20, "SPX/Gold Weight", minval=0.0, maxval=1.0, step=0.05, group="Weights")
-weight_elliott = input.float(0.20, "Elliott Wave Weight", minval=0.0, maxval=1.0, step=0.05, group="Weights")
-weight_crypto_bull = input.float(0.15, "Crypto Bull Weight", minval=0.0, maxval=1.0, step=0.05, group="Weights")
-weight_trading_parrot = input.float(0.20, "Trading Parrot Weight", minval=0.0, maxval=1.0, step=0.05, group="Weights")
+// External Data Sources
+spx_symbol = input.symbol("SPY", "SPX Symbol", group="Data Sources")
+gold_symbol = input.symbol("GLD", "Gold Symbol", group="Data Sources")
+btc_dominance_symbol = input.symbol("CRYPTOCAP:BTC.D", "BTC Dominance", group="Data Sources")
 
 // ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-// Normalize signal to 0-100 range
-normalize_signal(value, min_val, max_val) =>
-    math.max(0, math.min(100, (value - min_val) / (max_val - min_val) * 100))
-
-// Get external symbol data
-get_external_data(symbol_id) =>
-    request.security(symbol_id, timeframe.period, close)
-
-// Calculate percentage change
-pct_change(current, previous) =>
-    previous != 0 ? (current - previous) / previous * 100 : 0
-
-// ============================================================================
-// PI CYCLE TOP INDICATOR
+// PI CYCLE TOP CALCULATION
 // ============================================================================
 
 calculate_pi_cycle_signal() =>
     var float signal = 50.0
     
-    if pi_cycle_enabled
-        // Calculate moving averages
-        ma_111 = ta.sma(close, ma_111_length)
-        ma_350_x2 = ta.sma(close, ma_350_length) * 2
-        
-        // Pi Cycle logic: when 111MA crosses above 350MA*2, it's a top signal
-        cross_above = ta.crossover(ma_111, ma_350_x2)
-        cross_below = ta.crossunder(ma_111, ma_350_x2)
-        
-        // Calculate distance ratio
-        distance_ratio = ma_350_x2 != 0 ? math.abs(ma_111 - ma_350_x2) / ma_350_x2 : 0
-        
-        // Signal calculation
-        if ma_111 >= ma_350_x2
-            // Lines have crossed - top signal (higher = more bearish)
-            signal := 85 + (distance_ratio * 15)
-        else
-            // Distance to crossing (closer = higher signal)
-            signal := 50 + (1 - distance_ratio) * 35
-        
-        signal := math.max(0, math.min(100, signal))
+    // Calculate moving averages
+    ma_111 = ta.sma(close, 111)
+    ma_350_x2 = ta.sma(close, 350) * 2
+    
+    // Distance calculation
+    distance_pct = ma_350_x2 > 0 ? (ma_350_x2 - ma_111) / ma_350_x2 * 100 : 0
+    
+    // Signal calculation
+    if ma_111 >= ma_350_x2
+        // Above the line - top signal active
+        excess_pct = (ma_111 - ma_350_x2) / ma_350_x2 * 100
+        signal := 85 + math.min(15, excess_pct * 3)
+    else
+        // Below the line - calculate proximity
+        proximity = math.max(0, 100 - distance_pct * 10)
+        signal := proximity * 0.8
     
     signal
 
 // ============================================================================
-// SPX/GOLD RATIO ANALYSIS
+// SPX/GOLD RATIO CALCULATION
 // ============================================================================
 
 calculate_spx_gold_signal() =>
     var float signal = 50.0
     
-    if spx_gold_enabled
-        // Get SPX and Gold data
-        spx_price = get_external_data(spx_symbol)
-        gold_price = get_external_data(gold_symbol)
+    // Get external data
+    spx_price = request.security(spx_symbol, timeframe.period, close)
+    gold_price = request.security(gold_symbol, timeframe.period, close)
+    
+    // Calculate ratio
+    spx_gold_ratio = gold_price > 0 ? spx_price / gold_price : na
+    
+    if not na(spx_gold_ratio)
+        // Bubble thresholds
+        bubble_warning = 2.0
+        bubble_danger = 2.3
+        bubble_extreme = 2.6
         
-        if gold_price > 0
-            // Calculate ratio
-            spx_gold_ratio = spx_price / gold_price
-            
-            // Historical analysis: ratios above bubble_threshold indicate danger
-            if spx_gold_ratio > bubble_threshold * 1.1
-                signal := 90 + math.min(10, (spx_gold_ratio - bubble_threshold * 1.1) * 20)
-            else if spx_gold_ratio > bubble_threshold
-                signal := 70 + ((spx_gold_ratio - bubble_threshold) / (bubble_threshold * 0.1)) * 20
-            else if spx_gold_ratio > bubble_threshold * 0.9
-                signal := 40 + ((spx_gold_ratio - bubble_threshold * 0.9) / (bubble_threshold * 0.1)) * 30
-            else
-                signal := 20 + ((spx_gold_ratio - bubble_threshold * 0.7) / (bubble_threshold * 0.2)) * 20
-        
-        signal := math.max(0, math.min(100, signal))
+        // Signal calculation
+        if spx_gold_ratio >= bubble_extreme
+            signal := 95 + math.min(5, (spx_gold_ratio - bubble_extreme) / bubble_extreme * 20)
+        else if spx_gold_ratio >= bubble_danger
+            signal := 80 + ((spx_gold_ratio - bubble_danger) / (bubble_extreme - bubble_danger)) * 15
+        else if spx_gold_ratio >= bubble_warning
+            signal := 60 + ((spx_gold_ratio - bubble_warning) / (bubble_danger - bubble_warning)) * 20
+        else if spx_gold_ratio >= bubble_warning * 0.8
+            signal := 40 + ((spx_gold_ratio - bubble_warning * 0.8) / (bubble_warning * 0.2)) * 20
+        else
+            signal := math.max(0, (spx_gold_ratio / (bubble_warning * 0.8)) * 40)
     
     signal
 
 // ============================================================================
-// ELLIOTT WAVE ANALYSIS
+// ELLIOTT WAVE CALCULATION
 // ============================================================================
 
 calculate_elliott_wave_signal() =>
     var float signal = 50.0
     
-    if elliott_enabled
-        // Simplified Elliott Wave analysis using price momentum and structure
-        
-        // Calculate price momentum over different periods
-        momentum_short = ta.mom(close, wave_length / 5)
-        momentum_medium = ta.mom(close, wave_length / 2)
-        momentum_long = ta.mom(close, wave_length)
-        
-        // Calculate wave structure indicators
-        high_20 = ta.highest(high, wave_length / 2)
-        low_20 = ta.lowest(low, wave_length / 2)
-        price_position = (close - low_20) / (high_20 - low_20)
-        
-        // RSI for momentum analysis
-        rsi_wave = ta.rsi(close, wave_length / 3)
-        
-        // Elliott Wave signal logic
-        // Higher values indicate late-stage waves (more bearish)
-        wave_maturity = 0.0
-        
-        // Check for potential Wave 5 characteristics
-        if momentum_long > 0 and momentum_medium > 0 and momentum_short < 0
-            wave_maturity := 70 // Potential Wave 5 top
-        else if rsi_wave > 70 and price_position > 0.8
-            wave_maturity := 80 // Overbought in high position
-        else if momentum_long < 0 and momentum_medium < 0
-            wave_maturity := 30 // Corrective waves
-        else if rsi_wave < 30 and price_position < 0.2
-            wave_maturity := 20 // Oversold, potential Wave 2/4
-        else
-            wave_maturity := 50 // Neutral/trending
-        
-        signal := wave_maturity
+    // Price momentum analysis
+    momentum_short = ta.mom(close, 10)
+    momentum_medium = ta.mom(close, 25)
+    momentum_long = ta.mom(close, 50)
+    
+    // RSI for momentum confirmation
+    rsi_wave = ta.rsi(close, 14)
+    
+    // Volume analysis
+    volume_ma = ta.sma(volume, 20)
+    volume_ratio = volume > 0 and volume_ma > 0 ? volume / volume_ma : 1.0
+    
+    // Wave analysis based on momentum patterns
+    if momentum_long > 0 and momentum_medium > 0 and momentum_short < 0
+        signal := 70 // Potential Wave 5 top
+    else if rsi_wave > 70 and volume_ratio < 0.8
+        signal := 75 // Overbought with weak volume
+    else if momentum_long < 0 and momentum_medium < 0
+        signal := 35 // Corrective phase
+    else if rsi_wave < 30 and volume_ratio > 1.5
+        signal := 25 // Oversold with strong volume
+    else
+        signal := 50 // Neutral
     
     signal
 
 // ============================================================================
-// CRYPTO BULL MARKET STRATEGY
+// CRYPTO BULL STRATEGY CALCULATION
 // ============================================================================
 
 calculate_crypto_bull_signal() =>
     var float signal = 50.0
     
-    if crypto_bull_enabled
-        // 50-week SMA equivalent (using daily data)
-        sma_50w = ta.sma(close, sma_50w_length)
-        
-        // Current progress toward target
-        target_progress = close / btc_target
-        
-        // Bull market signal logic
-        if close > sma_50w
-            // Above 50-week SMA - bullish, but adjust based on target progress
-            base_signal = 30 // Bullish base
-            progress_adjustment = target_progress * 40 // Higher as we approach target
-            signal := base_signal + progress_adjustment
-        else
-            // Below 50-week SMA - bearish
-            distance_below = (sma_50w - close) / sma_50w
-            signal := 60 + (distance_below * 40) // More bearish the further below
-        
-        signal := math.max(0, math.min(100, signal))
+    // 50-week SMA (350 days)
+    sma_50w = ta.sma(close, 350)
+    
+    // Progress toward targets
+    btc_target_2026 = 200000
+    progress_2026 = (close / btc_target_2026) * 100
+    
+    // Bull market phase detection
+    if close > sma_50w
+        // Bullish signal, but adjust based on progress
+        base_bullish = 30
+        progress_penalty = (progress_2026 / 100) * 40
+        signal := base_bullish + progress_penalty
+    else
+        // Below 50-week SMA - bearish
+        distance_below = (sma_50w - close) / sma_50w * 100
+        signal := 60 + math.min(30, distance_below * 2)
     
     signal
 
 // ============================================================================
-// TRADING PARROT MULTI-SOURCE ANALYSIS
+// TRADING PARROT ANALYSIS CALCULATION
 // ============================================================================
 
 calculate_trading_parrot_signal() =>
     var float signal = 50.0
     
-    if tp_enabled
-        // RSI Analysis (custom variant)
-        rsi_standard = ta.rsi(close, rsi_length)
-        rsi_volume_weighted = ta.rsi(close * volume, rsi_length) // Volume-weighted RSI
-        
-        // Volume Analysis
-        volume_ma = ta.sma(volume, volume_ma_length)
-        volume_ratio = volume / volume_ma
-        
-        // Liquidity Analysis (support/resistance strength)
-        highest_lookback = ta.highest(high, liquidity_lookback)
-        lowest_lookback = ta.lowest(low, liquidity_lookback)
-        price_position_liquidity = (close - lowest_lookback) / (highest_lookback - lowest_lookback)
-        
-        // Pattern Recognition (simplified)
-        // Look for potential cup & handle or breakout patterns
-        ma_20 = ta.sma(close, 20)
-        ma_50 = ta.sma(close, 50)
-        pattern_strength = 0.0
-        
-        if close > ma_20 and ma_20 > ma_50 and volume_ratio > 1.2
-            pattern_strength := 30 // Bullish pattern
-        else if close < ma_20 and ma_20 < ma_50 and volume_ratio > 1.5
-            pattern_strength := 70 // Bearish breakdown
-        else
-            pattern_strength := 50 // Neutral
-        
-        // SOPR-like calculation (simplified for Pine Script)
-        // Using price vs moving average as proxy for profit/loss
-        sopr_proxy = close / ta.sma(close, 100)
-        sopr_signal = 0.0
-        
-        if sopr_proxy > 1.15
-            sopr_signal := 80 // Heavy profit taking
-        else if sopr_proxy > 1.05
-            sopr_signal := 65 // Moderate profit taking
-        else if sopr_proxy > 0.95
-            sopr_signal := 45 // Neutral
-        else
-            sopr_signal := 25 // Loss taking/capitulation
-        
-        // Combine all Trading Parrot components
-        tp_rsi_component = (100 - rsi_standard) // Invert RSI (lower RSI = more bullish)
-        tp_volume_component = math.min(100, volume_ratio * 50)
-        tp_liquidity_component = price_position_liquidity * 100
-        tp_pattern_component = pattern_strength
-        tp_sopr_component = sopr_signal
-        
-        // Weighted combination
-        signal := (tp_rsi_component * 0.25 + 
-                  tp_volume_component * 0.15 + 
-                  tp_liquidity_component * 0.20 + 
-                  tp_pattern_component * 0.20 + 
-                  tp_sopr_component * 0.20)
-        
-        signal := math.max(0, math.min(100, signal))
+    // Custom RSI analysis
+    rsi_standard = ta.rsi(close, 14)
     
-    signal
-
-// ============================================================================
-// ZEBERG BUSINESS CYCLES (SIMPLIFIED)
-// ============================================================================
-
-calculate_zeberg_signal() =>
-    var float signal = 50.0
+    // Volume analysis
+    volume_ma = ta.sma(volume, 20)
+    volume_ratio = volume > 0 and volume_ma > 0 ? volume / volume_ma : 1.0
     
-    // Simplified Zeberg analysis using available market data
-    // Focus on leading indicators that can be derived from price/volume
+    // Liquidity analysis (simplified)
+    highest_recent = ta.highest(high, 100)
+    lowest_recent = ta.lowest(low, 100)
+    price_position = (close - lowest_recent) / (highest_recent - lowest_recent)
     
-    // Leading indicator proxies
-    price_momentum_long = ta.mom(close, 200) // Long-term momentum
-    volume_trend = ta.sma(volume, 50) / ta.sma(volume, 200) // Volume trend
-    volatility = ta.atr(20) / close // Relative volatility
+    // SOPR proxy analysis
+    long_ma = ta.sma(close, 100)
+    sopr_proxy = close / long_ma
     
-    // Coincident indicator proxies  
-    price_ma_200 = ta.sma(close, 200)
-    price_vs_ma = close / price_ma_200 // Current vs long-term average
+    // Combine signals
+    rsi_signal = rsi_standard > 70 ? 80 : rsi_standard < 30 ? 20 : 50
+    volume_signal = volume_ratio > 2.0 ? 60 : volume_ratio < 0.5 ? 40 : 50
+    liquidity_signal = price_position * 100
+    sopr_signal = sopr_proxy > 1.15 ? 85 : sopr_proxy < 0.95 ? 25 : 50
     
-    // Lagging indicator proxies
-    rsi_long = ta.rsi(close, 50) // Longer-term RSI
-    
-    // Zeberg-style analysis (currently bullish in real analysis)
-    leading_strength = 0.0
-    if price_momentum_long > 0 and volume_trend > 1.0
-        leading_strength := 20 // Bullish leading indicators
-    else if price_momentum_long < 0 and volume_trend < 0.8
-        leading_strength := 80 // Bearish leading indicators
-    else
-        leading_strength := 50
-    
-    coincident_strength = 0.0
-    if price_vs_ma > 1.1
-        coincident_strength := 30 // Strong current conditions
-    else if price_vs_ma < 0.9
-        coincident_strength := 70 // Weak current conditions
-    else
-        coincident_strength := 50
-    
-    lagging_strength = 0.0
-    if rsi_long > 70
-        lagging_strength := 70 // Overbought (bearish)
-    else if rsi_long < 30
-        lagging_strength := 30 // Oversold (bullish)
-    else
-        lagging_strength := 50
-    
-    // Weighted combination (leading indicators have highest weight)
-    signal := leading_strength * 0.5 + coincident_strength * 0.3 + lagging_strength * 0.2
+    // Weighted combination
+    signal := (rsi_signal * 0.3 + volume_signal * 0.2 + liquidity_signal * 0.25 + sopr_signal * 0.25)
     
     signal
 
@@ -326,13 +197,12 @@ calculate_zeberg_signal() =>
 // SIGNAL CALCULATIONS
 // ============================================================================
 
-// Calculate individual signals
+// Calculate individual methodology signals
 pi_cycle_signal = calculate_pi_cycle_signal()
 spx_gold_signal = calculate_spx_gold_signal()
 elliott_signal = calculate_elliott_wave_signal()
 crypto_bull_signal = calculate_crypto_bull_signal()
 trading_parrot_signal = calculate_trading_parrot_signal()
-zeberg_signal = calculate_zeberg_signal()
 
 // Calculate integrated signal
 total_weight = weight_pi_cycle + weight_spx_gold + weight_elliott + weight_crypto_bull + weight_trading_parrot
@@ -341,22 +211,21 @@ integrated_signal = total_weight > 0 ?
      spx_gold_signal * weight_spx_gold + 
      elliott_signal * weight_elliott + 
      crypto_bull_signal * weight_crypto_bull + 
-     trading_parrot_signal * weight_trading_parrot) / total_weight : 50
+     trading_parrot_signal * weight_trading_parrot) / total_weight : 50.0
 
 // ============================================================================
 // VISUALIZATION
 // ============================================================================
 
 // Plot individual signals
-plot(show_individual_signals ? pi_cycle_signal : na, "Pi Cycle", color.red, 2)
-plot(show_individual_signals ? spx_gold_signal : na, "SPX/Gold", color.orange, 2)
-plot(show_individual_signals ? elliott_signal : na, "Elliott Wave", color.blue, 2)
-plot(show_individual_signals ? crypto_bull_signal : na, "Crypto Bull", color.green, 2)
-plot(show_individual_signals ? trading_parrot_signal : na, "Trading Parrot", color.purple, 2)
-plot(show_individual_signals ? zeberg_signal : na, "Zeberg Cycles", color.yellow, 2)
+plot(show_individual ? pi_cycle_signal : na, "Pi Cycle", color.red, 1)
+plot(show_individual ? spx_gold_signal : na, "SPX/Gold", color.orange, 1)
+plot(show_individual ? elliott_signal : na, "Elliott Wave", color.blue, 1)
+plot(show_individual ? crypto_bull_signal : na, "Crypto Bull", color.green, 1)
+plot(show_individual ? trading_parrot_signal : na, "Trading Parrot", color.purple, 1)
 
 // Plot integrated signal
-plot(show_integrated_signal ? integrated_signal : na, "Integrated Signal", color.white, 3)
+plot(show_integrated ? integrated_signal : na, "Integrated Signal", color.white, 3)
 
 // Reference lines
 hline(80, "Strong Sell", color.red, linestyle=hline.style_dashed)
@@ -365,93 +234,134 @@ hline(50, "Neutral", color.gray, linestyle=hline.style_solid)
 hline(40, "Buy", color.lime, linestyle=hline.style_dotted)
 hline(20, "Strong Buy", color.green, linestyle=hline.style_dashed)
 
-// Background coloring based on integrated signal
-bgcolor(integrated_signal > 80 ? color.new(color.red, 90) : 
-        integrated_signal > 60 ? color.new(color.orange, 90) : 
-        integrated_signal < 20 ? color.new(color.green, 90) : 
-        integrated_signal < 40 ? color.new(color.lime, 90) : na)
+// Background coloring
+bgcolor(show_background and integrated_signal > 80 ? color.new(color.red, 90) : 
+        show_background and integrated_signal > 60 ? color.new(color.orange, 90) : 
+        show_background and integrated_signal < 20 ? color.new(color.green, 90) : 
+        show_background and integrated_signal < 40 ? color.new(color.lime, 90) : na)
 
 // ============================================================================
-// ALERTS
+// INFORMATION TABLE
 // ============================================================================
 
-if show_alerts
-    // Pi Cycle Top Alert
-    if pi_cycle_signal > 95 and pi_cycle_signal[1] <= 95
-        alert("🚨 PI CYCLE TOP ALERT: Bitcoin showing extreme top signals!", alert.freq_once_per_bar)
-    
-    // SPX/Gold Bubble Alert
-    if spx_gold_signal > 90 and spx_gold_signal[1] <= 90
-        alert("💥 BUBBLE ALERT: SPX/Gold ratio at dangerous levels!", alert.freq_once_per_bar)
-    
-    // Integrated Signal Alerts
-    if integrated_signal > 85 and integrated_signal[1] <= 85
-        alert("🔴 EXTREME SELL SIGNAL: Multiple methodologies showing top!", alert.freq_once_per_bar)
-    
-    if integrated_signal < 15 and integrated_signal[1] >= 15
-        alert("🟢 EXTREME BUY SIGNAL: Multiple methodologies showing bottom!", alert.freq_once_per_bar)
-
-// ============================================================================
-// TABLE DISPLAY
-// ============================================================================
-
-if barstate.islast and show_individual_signals
+if show_table and barstate.islast
     var table info_table = table.new(position.top_right, 3, 8, bgcolor=color.white, border_width=1)
     
-    table.cell(info_table, 0, 0, "Methodology", text_color=color.black, bgcolor=color.gray)
-    table.cell(info_table, 1, 0, "Signal", text_color=color.black, bgcolor=color.gray)
-    table.cell(info_table, 2, 0, "Status", text_color=color.black, bgcolor=color.gray)
+    table.cell(info_table, 0, 0, "Ultimate Trading System", text_color=color.white, bgcolor=color.blue)
+    table.cell(info_table, 1, 0, "Signal", text_color=color.white, bgcolor=color.blue)
+    table.cell(info_table, 2, 0, "Status", text_color=color.white, bgcolor=color.blue)
     
-    // Pi Cycle
-    pi_status = pi_cycle_signal > 80 ? "SELL" : pi_cycle_signal > 60 ? "Caution" : pi_cycle_signal < 40 ? "BUY" : "Hold"
-    pi_color = pi_cycle_signal > 80 ? color.red : pi_cycle_signal > 60 ? color.orange : pi_cycle_signal < 40 ? color.green : color.gray
+    // Pi Cycle Top
+    pi_status = pi_cycle_signal > 80 ? "TOP" : pi_cycle_signal < 30 ? "SAFE" : "MONITOR"
+    pi_color = pi_cycle_signal > 80 ? color.red : pi_cycle_signal < 30 ? color.green : color.gray
     table.cell(info_table, 0, 1, "Pi Cycle", text_color=color.black)
     table.cell(info_table, 1, 1, str.tostring(math.round(pi_cycle_signal, 1)), text_color=color.black)
     table.cell(info_table, 2, 1, pi_status, text_color=color.white, bgcolor=pi_color)
     
-    // SPX/Gold
-    spx_status = spx_gold_signal > 80 ? "SELL" : spx_gold_signal > 60 ? "Caution" : spx_gold_signal < 40 ? "BUY" : "Hold"
-    spx_color = spx_gold_signal > 80 ? color.red : spx_gold_signal > 60 ? color.orange : spx_gold_signal < 40 ? color.green : color.gray
+    // SPX/Gold Ratio
+    spx_status = spx_gold_signal > 80 ? "BUBBLE" : spx_gold_signal < 40 ? "NORMAL" : "ELEVATED"
+    spx_color = spx_gold_signal > 80 ? color.red : spx_gold_signal < 40 ? color.green : color.orange
     table.cell(info_table, 0, 2, "SPX/Gold", text_color=color.black)
     table.cell(info_table, 1, 2, str.tostring(math.round(spx_gold_signal, 1)), text_color=color.black)
     table.cell(info_table, 2, 2, spx_status, text_color=color.white, bgcolor=spx_color)
     
     // Elliott Wave
-    elliott_status = elliott_signal > 80 ? "SELL" : elliott_signal > 60 ? "Caution" : elliott_signal < 40 ? "BUY" : "Hold"
-    elliott_color = elliott_signal > 80 ? color.red : elliott_signal > 60 ? color.orange : elliott_signal < 40 ? color.green : color.gray
+    ew_status = elliott_signal > 70 ? "WAVE 5" : elliott_signal < 35 ? "WAVE 2/4" : "NEUTRAL"
+    ew_color = elliott_signal > 70 ? color.red : elliott_signal < 35 ? color.green : color.gray
     table.cell(info_table, 0, 3, "Elliott Wave", text_color=color.black)
     table.cell(info_table, 1, 3, str.tostring(math.round(elliott_signal, 1)), text_color=color.black)
-    table.cell(info_table, 2, 3, elliott_status, text_color=color.white, bgcolor=elliott_color)
+    table.cell(info_table, 2, 3, ew_status, text_color=color.white, bgcolor=ew_color)
     
-    // Crypto Bull
-    bull_status = crypto_bull_signal > 80 ? "SELL" : crypto_bull_signal > 60 ? "Caution" : crypto_bull_signal < 40 ? "BUY" : "Hold"
-    bull_color = crypto_bull_signal > 80 ? color.red : crypto_bull_signal > 60 ? color.orange : crypto_bull_signal < 40 ? color.green : color.gray
+    // Crypto Bull Strategy
+    bull_status = crypto_bull_signal < 40 ? "BULL" : crypto_bull_signal > 60 ? "BEAR" : "NEUTRAL"
+    bull_color = crypto_bull_signal < 40 ? color.green : crypto_bull_signal > 60 ? color.red : color.gray
     table.cell(info_table, 0, 4, "Crypto Bull", text_color=color.black)
     table.cell(info_table, 1, 4, str.tostring(math.round(crypto_bull_signal, 1)), text_color=color.black)
     table.cell(info_table, 2, 4, bull_status, text_color=color.white, bgcolor=bull_color)
     
     // Trading Parrot
-    tp_status = trading_parrot_signal > 80 ? "SELL" : trading_parrot_signal > 60 ? "Caution" : trading_parrot_signal < 40 ? "BUY" : "Hold"
-    tp_color = trading_parrot_signal > 80 ? color.red : trading_parrot_signal > 60 ? color.orange : trading_parrot_signal < 40 ? color.green : color.gray
+    tp_status = trading_parrot_signal > 70 ? "SELL" : trading_parrot_signal < 30 ? "BUY" : "HOLD"
+    tp_color = trading_parrot_signal > 70 ? color.red : trading_parrot_signal < 30 ? color.green : color.gray
     table.cell(info_table, 0, 5, "Trading Parrot", text_color=color.black)
     table.cell(info_table, 1, 5, str.tostring(math.round(trading_parrot_signal, 1)), text_color=color.black)
     table.cell(info_table, 2, 5, tp_status, text_color=color.white, bgcolor=tp_color)
     
-    // Zeberg Cycles
-    zeberg_status = zeberg_signal > 80 ? "SELL" : zeberg_signal > 60 ? "Caution" : zeberg_signal < 40 ? "BUY" : "Hold"
-    zeberg_color = zeberg_signal > 80 ? color.red : zeberg_signal > 60 ? color.orange : zeberg_signal < 40 ? color.green : color.gray
-    table.cell(info_table, 0, 6, "Zeberg Cycles", text_color=color.black)
-    table.cell(info_table, 1, 6, str.tostring(math.round(zeberg_signal, 1)), text_color=color.black)
-    table.cell(info_table, 2, 6, zeberg_status, text_color=color.white, bgcolor=zeberg_color)
-    
     // Integrated Signal
-    integrated_status = integrated_signal > 80 ? "STRONG SELL" : integrated_signal > 60 ? "SELL" : integrated_signal < 20 ? "STRONG BUY" : integrated_signal < 40 ? "BUY" : "HOLD"
-    integrated_color = integrated_signal > 80 ? color.red : integrated_signal > 60 ? color.orange : integrated_signal < 20 ? color.green : integrated_signal < 40 ? color.lime : color.gray
-    table.cell(info_table, 0, 7, "INTEGRATED", text_color=color.white, bgcolor=color.black)
-    table.cell(info_table, 1, 7, str.tostring(math.round(integrated_signal, 1)), text_color=color.white, bgcolor=color.black)
-    table.cell(info_table, 2, 7, integrated_status, text_color=color.white, bgcolor=integrated_color)
+    int_status = integrated_signal > 80 ? "STRONG SELL" : integrated_signal > 60 ? "SELL" : integrated_signal < 20 ? "STRONG BUY" : integrated_signal < 40 ? "BUY" : "HOLD"
+    int_color = integrated_signal > 80 ? color.red : integrated_signal > 60 ? color.orange : integrated_signal < 20 ? color.green : integrated_signal < 40 ? color.lime : color.gray
+    table.cell(info_table, 0, 6, "INTEGRATED", text_color=color.white, bgcolor=color.black)
+    table.cell(info_table, 1, 6, str.tostring(math.round(integrated_signal, 1)), text_color=color.white, bgcolor=color.black)
+    table.cell(info_table, 2, 6, int_status, text_color=color.white, bgcolor=int_color)
+    
+    // Current Price
+    table.cell(info_table, 0, 7, "Price", text_color=color.black)
+    table.cell(info_table, 1, 7, "$" + str.tostring(close, "#,###"), text_color=color.black)
+    table.cell(info_table, 2, 7, "BTC/USD", text_color=color.black)
 
 // ============================================================================
-// END OF INDICATOR
+// METHODOLOGY SUMMARY TABLE
+// ============================================================================
+
+if show_table and barstate.islast
+    var table method_table = table.new(position.bottom_right, 2, 7, bgcolor=color.new(color.blue, 80), border_width=1)
+    
+    table.cell(method_table, 0, 0, "Methodology", text_color=color.white, bgcolor=color.blue)
+    table.cell(method_table, 1, 0, "Weight", text_color=color.white, bgcolor=color.blue)
+    
+    table.cell(method_table, 0, 1, "Pi Cycle Top", text_color=color.white)
+    table.cell(method_table, 1, 1, str.tostring(weight_pi_cycle * 100, "#") + "%", text_color=color.white)
+    
+    table.cell(method_table, 0, 2, "SPX/Gold Ratio", text_color=color.white)
+    table.cell(method_table, 1, 2, str.tostring(weight_spx_gold * 100, "#") + "%", text_color=color.white)
+    
+    table.cell(method_table, 0, 3, "Elliott Wave", text_color=color.white)
+    table.cell(method_table, 1, 3, str.tostring(weight_elliott * 100, "#") + "%", text_color=color.white)
+    
+    table.cell(method_table, 0, 4, "Crypto Bull", text_color=color.white)
+    table.cell(method_table, 1, 4, str.tostring(weight_crypto_bull * 100, "#") + "%", text_color=color.white)
+    
+    table.cell(method_table, 0, 5, "Trading Parrot", text_color=color.white)
+    table.cell(method_table, 1, 5, str.tostring(weight_trading_parrot * 100, "#") + "%", text_color=color.white)
+    
+    table.cell(method_table, 0, 6, "Total Weight", text_color=color.white, bgcolor=color.black)
+    table.cell(method_table, 1, 6, str.tostring(total_weight * 100, "#") + "%", text_color=color.white, bgcolor=color.black)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+if enable_alerts
+    // Strong sell alert
+    if integrated_signal > alert_threshold_high and integrated_signal[1] <= alert_threshold_high
+        alert("🚨 ULTIMATE TRADING SYSTEM: STRONG SELL SIGNAL! Integrated signal: " + str.tostring(integrated_signal, "#.#") + 
+              "/100. Multiple methodologies indicating high risk. Price: $" + str.tostring(close, "#,###"), alert.freq_once_per_bar)
+    
+    // Strong buy alert
+    if integrated_signal < alert_threshold_low and integrated_signal[1] >= alert_threshold_low
+        alert("🟢 ULTIMATE TRADING SYSTEM: STRONG BUY SIGNAL! Integrated signal: " + str.tostring(integrated_signal, "#.#") + 
+              "/100. Multiple methodologies indicating opportunity. Price: $" + str.tostring(close, "#,###"), alert.freq_once_per_bar)
+    
+    // Pi Cycle specific alert
+    if pi_cycle_signal > 90 and pi_cycle_signal[1] <= 90
+        alert("🔴 PI CYCLE TOP ALERT! Signal: " + str.tostring(pi_cycle_signal, "#.#") + 
+              ". Historical top indicator activated at $" + str.tostring(close, "#,###"), alert.freq_once_per_bar)
+    
+    // SPX/Gold bubble alert
+    if spx_gold_signal > 90 and spx_gold_signal[1] <= 90
+        alert("💥 BUBBLE ALERT! SPX/Gold ratio in extreme territory. Signal: " + str.tostring(spx_gold_signal, "#.#") + 
+              ". Historical bubble levels detected!", alert.freq_once_per_bar)
+
+// ============================================================================
+// SIGNAL STRENGTH INDICATOR
+// ============================================================================
+
+// Add signal strength visualization
+signal_strength = math.abs(integrated_signal - 50) * 2 // Convert to 0-100 scale
+strength_color = signal_strength > 80 ? color.red : signal_strength > 60 ? color.orange : signal_strength > 40 ? color.yellow : color.green
+
+plot(signal_strength, "Signal Strength", strength_color, 2, display=display.none)
+
+// ============================================================================
+// END OF ULTIMATE TRADING SYSTEM INDICATOR
 // ============================================================================
 

@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("Trading Parrot Multi-Source Analysis", "TP-MSA", overlay=false, max_bars_back=1000)
 
 // ============================================================================

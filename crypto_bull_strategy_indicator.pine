@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("Crypto Bull Market Strategy", "Crypto-Bull", overlay=true, max_bars_back=500)
 
 // ============================================================================

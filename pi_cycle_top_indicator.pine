@@ -1,8 +1,8 @@
-//@version=5
+//@version=6
 indicator("Pi Cycle Top Indicator", "Pi Cycle", overlay=true, max_bars_back=500)
 
 // ============================================================================
-// PI CYCLE TOP INDICATOR - STANDALONE VERSION
+// PI CYCLE TOP INDICATOR - PINE SCRIPT V6
 // ============================================================================
 // The Pi Cycle Top Indicator has historically been effective at picking the 
 // exact day of Bitcoin market cycle highs. It uses the 111-day moving average 
